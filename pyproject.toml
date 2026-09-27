@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mdx-workbench"
+version = "0.2.0"
+description = "MDX 纯命令行分子模拟助手：结构准备 / 计算检查 / 数据集构建"
+requires-python = ">=3.11"
+dependencies = ["ase>=3.23,<4", "numpy>=1.26,<3", "rich>=13", "prompt-toolkit>=3"]
+
+[project.scripts]
+mdx = "mdx.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["mdx*"]

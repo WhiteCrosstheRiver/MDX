@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MLFF Scripts — Documentation</title>
+<style>
+  :root {
+    --bg: #f8f9fa;
+    --card: #ffffff;
+    --text: #212529;
+    --muted: #6c757d;
+    --border: #dee2e6;
+    --accent: #2563eb;
+    --accent-dim: #dbeafe;
+    --tag-bg: #e9ecef;
+    --code-bg: #f1f3f5;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 2rem 1rem;
+  }
+  .container { max-width: 960px; margin: 0 auto; }
+
+  /* Header */
+  header {
+    text-align: center;
+    margin-bottom: 2.5rem;
+  }
+  header h1 {
+    font-size: 2rem;
+    margin-bottom: .25rem;
+  }
+  header .subtitle {
+    color: var(--muted);
+    font-size: .95rem;
+  }
+
+  /* Version badges */
+  .version-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    justify-content: center;
+    margin-top: 1rem;
+  }
+  .version-bar span {
+    background: var(--accent-dim);
+    color: var(--accent);
+    font-size: .8rem;
+    padding: .2rem .65rem;
+    border-radius: 999px;
+    font-weight: 600;
+  }
+
+  /* Nav / TOC */
+  nav {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 2rem;
+  }
+  nav h2 {
+    font-size: 1rem;
+    margin-bottom: .75rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .05em;
+  }
+  nav ul {
+    list-style: none;
+    columns: 2;
+  }
+  nav li { margin-bottom: .3rem; }
+  nav a {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: .9rem;
+  }
+  nav a:hover { text-decoration: underline; }
+
+  /* Section cards */
+  section { margin-bottom: 2rem; }
+  section h2 {
+    font-size: 1.35rem;
+    border-bottom: 2px solid var(--border);
+    padding-bottom: .4rem;
+    margin-bottom: 1rem;
+  }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1rem;
+  }
+  .card h3 {
+    font-size: 1.05rem;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    margin-bottom: .5rem;
+  }
+  .card h3 code {
+    background: var(--code-bg);
+    padding: .15rem .5rem;
+    border-radius: 4px;
+    font-size: .9rem;
+    font-weight: 600;
+  }
+  .card .desc {
+    color: var(--text);
+    margin-bottom: .75rem;
+  }
+  .card .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    margin-bottom: .75rem;
+  }
+  .tag {
+    background: var(--tag-bg);
+    font-size: .78rem;
+    padding: .15rem .6rem;
+    border-radius: 4px;
+    color: var(--muted);
+  }
+  .tag.method { background: #d1fae5; color: #065f46; }
+  .tag.argparse { background: #fef3c7; color: #92400e; }
+  .tag.interactive { background: #ede9fe; color: #5b21b6; }
+  .usage-box {
+    background: var(--code-bg);
+    border-radius: 6px;
+    padding: .75rem 1rem;
+    font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+    font-size: .82rem;
+    white-space: pre-wrap;
+    overflow-x: auto;
+    color: #374151;
+  }
+  .usage-box .prompt { color: var(--muted); }
+
+  /* Footer */
+  footer {
+    text-align: center;
+    color: var(--muted);
+    font-size: .8rem;
+    margin-top: 3rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+  }
+
+  /* Workflow diagram */
+  .workflow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .4rem;
+    align-items: center;
+    margin: 1rem 0;
+  }
+  .workflow .step {
+    background: var(--accent-dim);
+    color: var(--accent);
+    font-size: .8rem;
+    padding: .25rem .6rem;
+    border-radius: 6px;
+    font-weight: 500;
+  }
+  .workflow .arrow { color: var(--muted); }
+
+  @media (max-width: 600px) {
+    nav ul { columns: 1; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <h1>MLFF Scripts</h1>
+  <p class="subtitle">Machine Learning Force Field — VASP / NEP 数据处理工具集</p>
+  <div class="version-bar">
+    <span>Last updated: 2026-05-14</span>
+    <span>Python 3.x</span>
+    <span>VASP + NEP + ASE + pymatgen</span>
+  </div>
+</header>
+
+<!-- ============== NAV ============== -->
+<nav>
+  <h2>Script Index</h2>
+  <ul>
+    <li><a href="#s01">splitandsave_outcars</a></li>
+    <li><a href="#s02">vasp2exyz</a></li>
+    <li><a href="#s03">xyz2poscars</a></li>
+    <li><a href="#s04">xdatcar2poscars</a></li>
+    <li><a href="#s05">poscars_perturb</a></li>
+    <li><a href="#s06">poscars_omit</a></li>
+    <li><a href="#s07">start_poscars</a></li>
+    <li><a href="#s08">start_xdatcar1</a></li>
+    <li><a href="#s09">rerun_historyjobs</a></li>
+    <li><a href="#s10">check_nelm</a></li>
+    <li><a href="#s11">checkout_nelm</a></li>
+    <li><a href="#s12">select_python</a></li>
+    <li><a href="#s13">select_XDATCARS</a></li>
+    <li><a href="#s14">select_pick_structure</a></li>
+    <li><a href="#s15">compare_similar</a></li>
+    <li><a href="#s16">nep_plot</a></li>
+    <li><a href="#s17">sketch</a></li>
+  </ul>
+</nav>
+
+<!-- ============== OVERVIEW ============== -->
+<section>
+  <h2>Typical Workflow</h2>
+  <div class="workflow">
+    <span class="step">start_poscars / start_xdatcar1</span>
+    <span class="arrow">→</span>
+    <span class="step">VASP calculations</span>
+    <span class="arrow">→</span>
+    <span class="step">rerun_historyjobs</span>
+    <span class="arrow">→</span>
+    <span class="step">check_nelm / checkout_nelm</span>
+    <span class="arrow">→</span>
+    <span class="step">vasp2exyz</span>
+    <span class="arrow">→</span>
+    <span class="step">splitandsave_outcars</span>
+    <span class="arrow">→</span>
+    <span class="step">NEP training</span>
+    <span class="arrow">→</span>
+    <span class="step">nep_plot</span>
+  </div>
+</section>
+
+<!-- ============== SCRIPTS ============== -->
+<section>
+  <h2>Script Details</h2>
+
+  <!-- s01 -->
+  <div class="card" id="s01">
+    <h3><code>splitandsave_outcars.py</code></h3>
+    <p class="desc">递归搜索 OUTCAR 文件，按指定比例随机分割为训练集和测试集。</p>
+    <div class="meta">
+      <span class="tag method">交互式</span>
+      <span class="tag">Author: Zemeng Feng</span>
+      <span class="tag">2023-08-23</span>
+    </div>
+    <div class="usage-box"><span class="prompt"># </span>python splitandsave_outcars.py
+<span class="prompt"># </span>按提示输入：
+<span class="prompt"># </span> ① 包含 OUTCAR 的根目录路径
+<span class="prompt"># </span> ② 训练/测试分割比例 (e.g. 9 1)
+<span class="prompt"># </span> ③ 输出目标目录路径</div>
+  </div>
+
+  <!-- s02 -->
+  <div class="card" id="s02">
+    <h3><code>vasp2exyz.py</code></h3>
+    <p class="desc">多进程并行扫描所有 OUTCAR，提取收敛结构的能量/力/应力/晶胞，合并写入一个 extxyz 格式文件。</p>
+    <div class="meta">
+      <span class="tag argparse">argparse</span>
+      <span class="tag">Author: G.J.Wang</span>
+    </div>
+    <div class="usage-box">python vasp2exyz.py -i &lt;input_dir&gt; -o &lt;output.xyz&gt;
+
+<span class="prompt"># </span>默认:
+<span class="prompt"># </span>  -i  alloutcar
+<span class="prompt"># </span>  -o  train.xyz
+
+<span class="prompt"># </span>示例:
+python vasp2exyz.py -i ./my_outcars -o dataset.xyz</div>
+  </div>
+
+  <!-- s03 -->
+  <div class="card" id="s03">
+    <h3><code>xyz2poscars.py</code></h3>
+    <p class="desc">将多帧 XYZ / CIF / POSCAR / CONTCAR 的每一帧转换为独立 POSCAR 文件，支持帧范围选择和帧间隔（步长）。</p>
+    <div class="meta">
+      <span class="tag method">交互式</span>
+      <span class="tag">Author: Zemeng Feng</span>
+    </div>
+    <div class="usage-box"><span class="prompt"># </span>python xyz2poscars.py
+<span class="prompt"># </span>按提示输入：
+<span class="prompt"># </span> ① 包含原子文件的根目录
+<span class="prompt"># </span> ② 输出目标目录
+<span class="prompt"># </span> ③ 是否跳过单帧文件 (y/n)
+<span class="prompt"># </span> ④ 帧范围 (e.g. 20-50,70-80)
+<span class="prompt"># </span> ⑤ 帧间隔 (每 N 帧取 1 帧)</div>
+  </div>
+
+  <!-- s04 -->
+  <div class="card" id="s04">
+    <h3><code>xdatcar2poscars.py</code></h3>
+    <p class="desc">从 VASP XDATCAR 分子动力学轨迹中提取指定帧（默认最后一帧，或用户自定义范围+步长），保存为 POSCAR 文件。</p>
+    <div class="meta">
+      <span class="tag method">交互式</span>
+      <span class="tag">Author: Zemeng Feng</span>
+      <span class="tag">2023-08-23</span>
+    </div>
+    <div class="usage-box"><span class="prompt"># </span>python xdatcar2poscars.py
+<span class="prompt"># </span>按提示输入：
+<span class="prompt"># </span> ① 包含 XDATCAR 的根目录
+<span class="prompt"># </span> ② 输出目标目录
+<span class="prompt"># </span> ③ 是否只提取最后一帧 (y/n)
+<span class="prompt"># </span>   若 n：输入起始步数、结束步数、帧频率</div>
+  </div>
+
+  <!-- s05 -->
+  <div class="card" id="s05">
+    <h3><code>poscars_perturb.py</code></h3>
+    <p class="desc">使用 dpdata.System.perturb() 对 POSCAR 进行结构微扰（晶胞和原子位移），支持多种扰动样式，多核并行处理。</p>
+    <div class="meta">
+      <span class="tag method">交互式</span>
+      <span class="tag">Author: Zemeng Feng</span>
+      <span class="tag">2023-08-25</span>
+    </div>
+    <div class="usage-box"><span class="prompt"># </span>python poscars_perturb.py
+<span class="prompt"># </span>按提示输入：
+<span class="prompt"># </span> ① 包含 POSCAR 的根目录
+<span class="prompt"># </span> ② 输出目标目录
+<span class="prompt"># </span> ③ 每个 POSCAR 生成的扰动数量 (默认 2)
+<span class="prompt"># </span> ④ 是否修改扰动参数 (y/n)
+<span class="prompt"># </span>   若 y：cell_pert_fraction (默认 0.02),
+<span class="prompt"># </span>        atom_pert_distance (默认 0.5),
+<span class="prompt"># </span>        pert_style (normal|uniform|const)
+<span class="prompt"># </span> ⑤ CPU 核心数</div>
+  </div>
+
+  <!-- s06 -->
+  <div class="card" id="s06">
+    <h3><code>poscars_omit.py</code></h3>
+    <p class="desc">从 POSCAR 文件中随机移除指定数量的原子（默认 1–3 个），生成"挖空"结构。</p>
+    <div class="meta">
+      <span class="tag method">交互式</span>
+      <span class="tag">Author: Zemeng Feng</span>
+      <span class="tag">2023-08-23</span>
+    </div>
+    <div class="usage-box"><span class="prompt"># </span>python poscars_omit.py
+<span class="prompt"># </span>按提示输入：
+<span class="prompt"># </span> ① 包含 POSCAR 的根目录
+<span class="prompt"># </span> ② 输出目标目录
+<span class="prompt"># </span> ③ 是否指定移除原子数范围 (y/n)
+<span class="prompt"># </span>   默认: 随机 1–3 个</div>
+  </div>
+
+  <!-- s07 -->
+  <div class="card" id="s07">
+    <h3><code>start_poscars.py</code></h3>
+    <p class="desc">遍历 POSCAR 文件夹，自动生成 INCAR（PBE-D3 泛函固定参数）和 Slurm 作业脚本 runvasp.sh，通过 qvasp + sbatch 提交 VASP 作业。</p>
+    <div class="meta">
+      <span class="tag method">交互式</span>
+      <span class="tag">Author: Zemeng Feng</span>
+      <span class="tag">2023-08-23</span>
+    </div>
+    <div class="usage-box"><span class="prompt"># </span>python start_poscars.py
+<span class="prompt"># </span>按提示输入：
+<span class="prompt"># </span> ① 包含 POSCAR 文件夹的根目录</div>
+  </div>
+
+  <!-- s08 -->
+  <div class="card" id="s08">
+    <h3><code>start_xdatcar1.py</code></h3>
+    <p class="desc">将 CIF / XYZ / POSCAR / CONTCAR 转换为 POSCAR，创建 *_AIMD 目录，生成 NVT AIMD INCAR（Nose-Hoover 50K→1500K 升温）和 Slurm 脚本，自动提交作业。</p>
+    <div class="meta">
+      <span class="tag method">交互式</span>
+    </div>
+    <div class="usage-box"><span class="prompt"># </span>python start_xdatcar1.py
+<span class="prompt"># </span>按提示输入：
+<span class="prompt"># </span> ① 包含 CIF/XYZ/POSCAR/CONTCAR 文件的根目录</div>
+  </div>
+
+  <!-- s09 -->
+  <div class="card" id="s09">
+    <h3><code>rerun_historyjobs.py</code></h3>
+    <p class="desc">检查已完成/失败的 VASP 作业：已完成则跳过；EDIFF 未收敛则自动将 NELM 增加 400 后重提交；半路失败则直接重提。同时修正 POSCAR 格式和对称性问题。</p>
+    <div class="meta">
+      <span class="tag method">交互式</span>
+      <span class="tag">Author: Zemeng Feng</span>
+      <span class="tag">2023-08-23</span>
+    </div>
+    <div class="usage-box"><span class="prompt"># </span>python rerun_historyjobs.py
+<span class="prompt"># </span>按提示输入：
+<span class="prompt"># </span> ① 包含 POSCAR 目录的根路径</div>
+  </div>
+
+  <!-- s10 -->
+  <div class="card" id="s10">
+    <h3><code>check_nelm.py</code></h3>
+    <p class="desc">扫描目录树中同时有 OUTCAR + CONTCAR 的文件夹，检查最后一次 SCF 迭代是否达到 NELM 上限（默认 60），列出未收敛的作业。</p>
+    <div class="meta">
+      <span class="tag argparse">argparse</span>
+    </div>
+    <div class="usage-box">python check_nelm.py -i &lt;input_dir&gt; [-n &lt;nelm_threshold&gt;]
+
+<span class="prompt"># </span>  -i  必填，要扫描的目录
+<span class="prompt"># </span>  -n  NELM 阈值，默认 60
+
+<span class="prompt"># </span>示例:
+python check_nelm.py -i ./jobs -n 100</div>
+  </div>
+
+  <!-- s11 -->
+  <div class="card" id="s11">
+    <h3><code>checkout_nelm.py</code></h3>
+    <p class="desc">全面的 OUTCAR 健康检查：未收敛（达 NELM）、OUTCAR 不完整（缺 General timing）、缺 CONTCAR、缺 OUTCAR 四项检查。</p>
+    <div class="meta">
+      <span class="tag argparse">argparse</span>
+    </div>
+    <div class="usage-box">python checkout_nelm.py -i &lt;input_dir&gt; [-n &lt;nelm_threshold&gt;]
+
+<span class="prompt"># </span>  -i  输入目录，默认 .
+<span class="prompt"># </span>  -n  NELM 阈值，默认 60
+
+<span class="prompt"># </span>示例:
+python checkout_nelm.py -i ./jobs
+python checkout_nelm.py -i ./jobs -n 80</div>
+  </div>
+
+  <!-- s12 -->
+  <div class="card" id="s12">
+    <h3><code>select_python.py</code></h3>
+    <p class="desc">从文件夹中随机抽取指定数量的 POSCAR 文件，保存到编号子目录中。</p>
+    <div class="meta">
+      <span class="tag method">交互式</span>
+      <span class="tag">Author: Zemeng Feng</span>
+      <span class="tag">2023-08-23</span>
+    </div>
+    <div class="usage-box"><span class="prompt"># </span>python select_python.py
+<span class="prompt"># </span>按提示输入：
+<span class="prompt"># </span> ① POSCAR 根目录
+<span class="prompt"># </span> ② 是否随机抽取 (y/n)
+<span class="prompt"># </span> ③ 抽取数量
+<span class="prompt"># </span> ④ 输出目标目录</div>
+  </div>
+
+  <!-- s13 -->
+  <div class="card" id="s13">
+    <h3><code>select_XDATCARS.py</code></h3>
+    <p class="desc">递归搜索所有 XDATCAR 文件，复制到目标目录下按序号命名的子文件夹中。</p>
+    <div class="meta">
+      <span class="tag method">交互式</span>
+    </div>
+    <div class="usage-box"><span class="prompt"># </span>python select_XDATCARS.py
+<span class="prompt"># </span>按提示输入：
+<span class="prompt"># </span> ① 搜索 XDATCAR 的根目录
+<span class="prompt"># </span> ② 输出目标目录</div>
+  </div>
+
+  <!-- s14 -->
+  <div class="card" id="s14">
+    <h3><code>select_pick_structure.py</code></h3>
+    <p class="desc">读取 structures.xyz，通过 NEP 描述符 + PCA 降维进行结构筛选：查看全部分布、最远点采样选取、或 PCA 空间矩形区域选取。</p>
+    <div class="meta">
+      <span class="tag argc">sys.argv</span>
+    </div>
+    <div class="usage-box"><span class="prompt"># </span>模式 1 — 绘制全部 PCA 散点:
+python select_pick_structure.py all
+<span class="prompt"># </span>→ 生成 all-points.png
+
+<span class="prompt"># </span>模式 2 — 最远点采样选取:
+python select_pick_structure.py select &lt;min_d1&gt; &lt;min_d2&gt; ...
+<span class="prompt"># </span>→ 生成 selected_*.xyz / abandoned_*.xyz
+
+<span class="prompt"># </span>模式 3 — PCA 矩形框选取:
+python select_pick_structure.py pick &lt;x1_start&gt; &lt;x1_end&gt; &lt;y1_start&gt; &lt;y2_end&gt; ...
+<span class="prompt"># </span>→ 生成 picked.xyz / retained.xyz</div>
+  </div>
+
+  <!-- s15 -->
+  <div class="card" id="s15">
+    <h3><code>compare_similar_v230721_副本.py</code> <span class="tag" style="background:#fef3c7;color:#92400e;font-size:.7rem;">v1.0</span></h3>
+    <p class="desc">使用 pymatgen StructureMatcher 检测目录中的相似/重复 POSCAR 结构，将相似结构移入 SimilarStruc_* 子目录。</p>
+    <div class="meta">
+      <span class="tag argparse">argparse</span>
+      <span class="tag">Author: Guanjie Wang</span>
+      <span class="tag">v1.0</span>
+    </div>
+    <div class="usage-box">python compare_similar_v230721_副本.py [-d &lt;dir&gt;] [-b &lt;batch_size&gt;] [-p &lt;prefix&gt;]
+
+<span class="prompt"># </span>  -d  目标目录，默认 ./gpuc300
+<span class="prompt"># </span>  -b  批大小，默认 50
+<span class="prompt"># </span>  -p  POSCAR 前缀名，默认 POSCAR
+
+<span class="prompt"># </span>示例:
+python compare_similar_v230721_副本.py -d ./my_structures -b 100 -p CONTCAR</div>
+  </div>
+
+  <!-- s16 -->
+  <div class="card" id="s16">
+    <h3><code>nep_plot.py</code></h3>
+    <p class="desc">读取 NEP 训练输出文件，生成诊断图：损失曲线、能量/力/virial 散点对比、参数直方图。输出 test_result.jpg, train_result.jpg, Histogram.jpg。</p>
+    <div class="meta">
+      <span class="tag method">无参数 — 直接运行</span>
+    </div>
+    <div class="usage-box"><span class="prompt"># </span>在 NEP 训练目录下直接运行:
+python nep_plot.py
+
+<span class="prompt"># </span>需确保以下文件在当前目录:
+<span class="prompt"># </span>  loss.out
+<span class="prompt"># </span>  energy_test.out, force_test.out, virial_test.out
+<span class="prompt"># </span>  energy_train.out, force_train.out, virial_train.out
+<span class="prompt"># </span>  nep.restart
+
+<span class="prompt"># </span>输出:
+<span class="prompt"># </span>  test_result.jpg   — 测试集对比散点
+<span class="prompt"># </span>  train_result.jpg  — 训练集对比散点
+<span class="prompt"># </span>  Histogram.jpg     — 参数直方图</div>
+  </div>
+
+  <!-- s17 -->
+  <div class="card" id="s17">
+    <h3><code>sketch.py</code></h3>
+    <p class="desc">实验性代码片段——测试在递增列表中查找第一个大于给定随机数的索引函数。非生产工具。</p>
+    <div class="meta">
+      <span class="tag method">无参数 — 直接运行</span>
+    </div>
+    <div class="usage-box">python sketch.py
+<span class="prompt"># </span>仅用于测试/原型目的</div>
+  </div>
+
+</section>
+
+<!-- ============== DEPENDENCIES ============== -->
+<section>
+  <h2>Environment &amp; Dependencies</h2>
+
+  <div class="card">
+    <h3>Conda (推荐)</h3>
+    <div class="usage-box"><span class="prompt"># </span>创建新环境并安装所有依赖:
+conda create -n mlff python=3.10 -y
+conda activate mlff
+conda install -c conda-forge pymatgen dpdata ase numpy matplotlib scikit-learn -y
+pip install calorine</div>
+  </div>
+
+  <div class="card">
+    <h3>Pip</h3>
+    <div class="usage-box"><span class="prompt"># </span>在已有 Python 环境中:
+pip install pymatgen dpdata ase calorine numpy matplotlib scikit-learn</div>
+  </div>
+
+  <div class="card">
+    <table style="width:100%;border-collapse:collapse;">
+      <thead>
+        <tr style="text-align:left;border-bottom:1px solid var(--border);">
+          <th style="padding:.5rem .75rem;">Package</th>
+          <th style="padding:.5rem .75rem;">Used By</th>
+          <th style="padding:.5rem .75rem;">Purpose</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="padding:.5rem .75rem;"><strong>Python</strong> ≥ 3.7</td>
+          <td style="padding:.5rem .75rem;">全部</td>
+          <td style="padding:.5rem .75rem;">运行时</td>
+        </tr>
+        <tr>
+          <td style="padding:.5rem .75rem;">VASP (qvasp)</td>
+          <td style="padding:.5rem .75rem;">start_poscars, start_xdatcar1, rerun_historyjobs</td>
+          <td style="padding:.5rem .75rem;">DFT 计算提交系统</td>
+        </tr>
+        <tr>
+          <td style="padding:.5rem .75rem;">Slurm (sbatch)</td>
+          <td style="padding:.5rem .75rem;">start_poscars, start_xdatcar1, rerun_historyjobs</td>
+          <td style="padding:.5rem .75rem;">HPC 作业调度</td>
+        </tr>
+        <tr>
+          <td style="padding:.5rem .75rem;">pymatgen</td>
+          <td style="padding:.5rem .75rem;">compare_similar</td>
+          <td style="padding:.5rem .75rem;">晶体结构比较</td>
+        </tr>
+        <tr>
+          <td style="padding:.5rem .75rem;">dpdata</td>
+          <td style="padding:.5rem .75rem;">poscars_perturb</td>
+          <td style="padding:.5rem .75rem;">结构微扰生成</td>
+        </tr>
+        <tr>
+          <td style="padding:.5rem .75rem;">ASE</td>
+          <td style="padding:.5rem .75rem;">start_xdatcar1</td>
+          <td style="padding:.5rem .75rem;">格式转换 (CIF→POSCAR)</td>
+        </tr>
+        <tr>
+          <td style="padding:.5rem .75rem;">calorine</td>
+          <td style="padding:.5rem .75rem;">select_pick_structure</td>
+          <td style="padding:.5rem .75rem;">NEP 描述符计算</td>
+        </tr>
+        <tr>
+          <td style="padding:.5rem .75rem;">numpy, matplotlib</td>
+          <td style="padding:.5rem .75rem;">nep_plot, select_pick_structure</td>
+          <td style="padding:.5rem .75rem;">数值计算 / 可视化</td>
+        </tr>
+        <tr>
+          <td style="padding:.5rem .75rem;">scikit-learn (PCA)</td>
+          <td style="padding:.5rem .75rem;">select_pick_structure</td>
+          <td style="padding:.5rem .75rem;">降维分析</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============== VERSION HISTORY ============== -->
+<section>
+  <h2>Version History</h2>
+  <div class="card">
+    <table style="width:100%;border-collapse:collapse;">
+      <thead>
+        <tr style="text-align:left;border-bottom:1px solid var(--border);">
+          <th style="padding:.5rem .75rem;">Date</th>
+          <th style="padding:.5rem .75rem;">Script</th>
+          <th style="padding:.5rem .75rem;">Author</th>
+          <th style="padding:.5rem .75rem;">Note</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="padding:.5rem .75rem;">2023-08-25</td>
+          <td style="padding:.5rem .75rem;">poscars_perturb.py</td>
+          <td style="padding:.5rem .75rem;">Zemeng Feng</td>
+          <td style="padding:.5rem .75rem;">初始版本</td>
+        </tr>
+        <tr>
+          <td style="padding:.5rem .75rem;">2023-08-23</td>
+          <td style="padding:.5rem .75rem;">splitandsave_outcars.py, select_python.py, poscars_omit.py, start_poscars.py, xdatcar2poscars.py, rerun_historyjobs.py</td>
+          <td style="padding:.5rem .75rem;">Zemeng Feng</td>
+          <td style="padding:.5rem .75rem;">初始版本</td>
+        </tr>
+        <tr>
+          <td style="padding:.5rem .75rem;">2023-07-14</td>
+          <td style="padding:.5rem .75rem;">compare_similar_v230721_副本.py</td>
+          <td style="padding:.5rem .75rem;">Guanjie Wang</td>
+          <td style="padding:.5rem .75rem;">v1.0</td>
+        </tr>
+        <tr>
+          <td style="padding:.5rem .75rem;">—</td>
+          <td style="padding:.5rem .75rem;">其余脚本</td>
+          <td style="padding:.5rem .75rem;">—</td>
+          <td style="padding:.5rem .75rem;">无明确版本标注</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<footer>
+  Generated for the MLFF scripts collection &middot; D:\Resources\research\mlff脚本
+</footer>
+
+</div>
+</body>
+</html>

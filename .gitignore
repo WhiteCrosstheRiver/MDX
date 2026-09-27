@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.mdx/
+.mdx-*/
+.mdx-screen.png
+.mdx-crop.png
+build/
+dist/
+NepTrainKit.win32/
