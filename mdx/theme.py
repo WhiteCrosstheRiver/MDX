@@ -22,6 +22,12 @@ THEME = Theme({
     "text": TEXT, "muted": MUTED, "faint": FAINT,
 })
 
+# 中日韩终端会把 ─ │ ● · █ 等 Ambiguous 字符渲染成双宽，导致面板边框错位撕裂。
+# 因此面板边框、圆点、进度条、spinner 一律用 ASCII；宽字符只允许出现在
+# 普通文本行中间（不参与对齐）。
+from rich import box as _box
+ASCII_BOX = _box.ASCII
+
 console = Console(theme=THEME, highlight=False)
 
 # 猫猫表情 = 状态。全部 ASCII：设计稿里的宽字符（⌨ ♡ ⊙ つ ω）在 CJK 终端
@@ -37,10 +43,10 @@ FACES = {
 }
 STATE_COLOR = {"success": OK, "warning": WARN, "error": BAD, "cancelled": WARN,
                "interrupted": WARN, "running": BRAND, "idle": BRAND}
-MARK_COLOR = {"✓": OK, "!": WARN, "✗": BAD}
+MARK_COLOR = {"+": OK, "!": WARN, "x": BAD, "v": OK}
 
 # 小动词 + 闪烁符号（运行中随机出现；符号本身不进猫猫画布，不会破版）
-SPIN = ["·", "✢", "✳", "✶", "✻", "✶", "✳", "✢"]
+SPIN = ["-", "\\", "|", "/"]
 VERBS = ["踩奶中", "舔毛中", "追尾巴中", "翻 OUTCAR 中", "打呼噜中", "数原子中", "伸懒腰中"]
 
 # 工具完成后的一步建议
@@ -64,5 +70,7 @@ def face(state):
 def dot(state="running", mark=None):
     """树状事件圆点 / 标记。"""
     if mark:
+        mark = {"✓": "+", "✗": "x"}.get(mark, mark)
         return f"[{MARK_COLOR.get(mark, BRAND)}]{mark}[/]"
-    return f"[{STATE_COLOR.get(state, BRAND)}]●[/]"
+    char = {"success": "+", "warning": "!", "error": "x"}.get(state, "*")
+    return f"[{STATE_COLOR.get(state, BRAND)}]{char}[/]"

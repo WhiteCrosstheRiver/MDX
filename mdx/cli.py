@@ -14,7 +14,7 @@ import sys
 import time
 from pathlib import Path
 
-from rich.box import ROUNDED
+from rich.box import ASCII as ASCII_BOX_RICH
 from rich.panel import Panel
 from rich.text import Text
 
@@ -83,7 +83,7 @@ def note(message, state="idle", mark=None):
 
 
 def tree_line(text, depth=1):
-    console.print(f"{'  ' * depth}[muted]└[/] {text}")
+    console.print(f"{'   ' * depth}[muted]`-[/] {text}")
 
 
 def cat_says(state, message, sub=None):
@@ -94,7 +94,7 @@ def cat_says(state, message, sub=None):
     body.append(message, style="text")
     if sub:
         body.append("\n" + sub, style="muted")
-    console.print(Panel(body, border_style=color, padding=(0, 1), box=ROUNDED))
+    console.print(Panel(body, border_style=color, padding=(0, 1), box=ASCII_BOX_RICH))
 
 
 def prompt_parameters(ui, tool, overrides=None):
@@ -162,7 +162,7 @@ def confirm_card(tool, params, output, n_inputs, session_flags):
     body.append(f"{'输出':<14}", style="muted")
     body.append(f"{output}\n", style="path")
     body.append("\n要开始吗？", style="text")
-    console.print(Panel(body, border_style=FAINT, padding=(0, 1), box=ROUNDED))
+    console.print(Panel(body, border_style=FAINT, padding=(0, 1), box=ASCII_BOX_RICH))
     console.print(f"[{BRAND}]❯ 1. 开始[/]\n  2. 开始，本次会话别再问\n  3. 改一下参数 [faint](e)[/]")
     choice = input("").strip().lower()
     if choice == "2":
@@ -246,10 +246,10 @@ def execute(ui, tool_id, params, project=None, output=None, ask=None, session_fl
                     done, total = prog
                     pct = min(100, int(done * 100 / max(total, 1)))
                     n = round(pct / 4)
-                    box.append(f"\n[{'█' * n}{'░' * (25 - n)}] {pct}%  {done}/{total}", style=BRAND)
+                    box.append(f"\n[{'#' * n}{'-' * (25 - n)}] {pct}%  {done}/{total}", style=BRAND)
                 for line in state["lines"][-5:]:
-                    box.append(f"\n[muted]└[/] {line}")
-                return Panel(box, border_style=FAINT, padding=(0, 1), box=ROUNDED)
+                    box.append(f"\n[muted]`-[/] {line}")
+                return Panel(box, border_style=FAINT, padding=(0, 1), box=ASCII_BOX_RICH)
 
             with Live(card(), console=console, refresh_per_second=6,
                       transient=True, vertical_overflow="crop"):
@@ -292,9 +292,9 @@ def execute(ui, tool_id, params, project=None, output=None, ask=None, session_fl
         note(f"{tool['name']} 完成 · {result['records']} 条记录 · {elapsed:.0f}s",
              state="success", mark="✓")
         tree_line(f"[path]{output}[/]")
-        console.print("    [muted]├[/] manifest.json [muted]参数 · 来源 · 可复现[/]")
+        console.print("    [muted]|[/] manifest.json [muted]参数 · 来源 · 可复现[/]")
         if issues:
-            console.print(f"    [muted]└[/] {issues} 条完整性提示 [warn]先看一眼再用于训练[/]")
+            console.print(f"    [muted]`-[/] {issues} 条完整性提示 [warn]先看一眼再用于训练[/]")
             cat_says("warning", f"有 {issues} 条提示，多半是没跑完的计算",
                      f"之后 /convert 会自动跳过 ✗ 项 · {NEXT_HINT.get(tool_id, '')}")
         else:
@@ -329,8 +329,8 @@ def show_env(ui):
     rows = [
         ("Python", platform.python_version()),
         ("平台", platform.platform()),
-        ("ASE", "✓ 已安装" if importlib.util.find_spec("ase") else "✗ 未安装（结构类工具不可用）"),
-        ("NumPy", "✓ 已安装" if importlib.util.find_spec("numpy") else "✗ 未安装"),
+        ("ASE", "[ok]已安装[/]" if importlib.util.find_spec("ase") else "[bad]未安装[/]（结构类工具不可用）"),
+        ("NumPy", "[ok]已安装[/]" if importlib.util.find_spec("numpy") else "[bad]未安装[/]"),
         ("程序目录", str(project_root())),
     ]
     for key, value in rows:
@@ -359,7 +359,7 @@ def choose_bin(ui, explicit=None):
     candidates = bin_candidates()
     path_set = {Path(p) for p in os.environ.get("PATH", "").split(os.pathsep)}
     console.print(Panel("[bold]装到哪里？[/]\n[muted]只写入一个启动脚本 · 不建虚拟环境 · 不装包 · 不碰系统目录[/]",
-                        border_style=FAINT, padding=(0, 1), box=ROUNDED))
+                        border_style=FAINT, padding=(0, 1), box=ASCII_BOX_RICH))
     shown = candidates[:2]
     for i, c in enumerate(shown, 1):
         mark = "[ok]在 PATH 里 · 推荐[/]" if c in path_set else "[warn]不在 PATH，需要手动加[/]"
@@ -424,7 +424,7 @@ def install(explicit_dir=None, dry_run=False, ui=None):
 
     note(f"装好了 [path]{target}[/]", state="success", mark="✓")
     if in_path:
-        tree_line("现在任何目录都能直接敲 [brand]mdx[/] · 卸载 [brand]mdx uninstall[/]")
+        tree_line("现在任何目录都能直接敲 [brand]mdx[/] 或卸载 [brand]mdx uninstall[/]")
     else:
         tree_line(f"[warn]{bin_dir} 不在 PATH 中[/]，加入 PATH：")
         if os.name == "nt":
@@ -554,7 +554,7 @@ def welcome_card():
     color, art = face("idle")
     body = Text()
     body.append(art + "\n\n", style=color)
-    body.append("✻ 欢迎回来！ MDX 分子模拟助手 ", style=color)
+    body.append("* 欢迎回来! MDX 分子模拟助手 ", style=color)
     body.append(f"v{__version__}\n", style="muted")
     body.append("纯本地 · 不联网 · 每个任务独立目录 + manifest\n", style="muted")
     body.append("目录 ", style="muted")
@@ -567,12 +567,12 @@ def welcome_card():
     body.append("Nanjing Tech University, Institute of Advanced Materials\n", style="faint")
     body.append("试试：", style="muted")
     body.append("/audit", style="brand")
-    body.append(" 检查计算 · ", style="muted")
+    body.append(" 检查计算 | ", style="muted")
     body.append("帮我抽帧", style="text")
-    body.append(" · ", style="muted")
+    body.append(" | ", style="muted")
     body.append("/tools", style="brand")
     body.append(" 看全部", style="muted")
-    console.print(Panel(body, border_style=color, padding=(1, 2), box=ROUNDED))
+    console.print(Panel(body, border_style=color, padding=(1, 2), box=ASCII_BOX_RICH))
 
 
 def interactive(ui, *, debug=False):
@@ -684,7 +684,7 @@ def interactive(ui, *, debug=False):
     body.append(art + "\n", style=color)
     body.append(f"拜拜～ 本次跑了 {stats['ok'] + stats['fail']} 个任务\n", style="text")
     body.append(f"✓ {stats['ok']} · ✗ {stats['fail']} · 输出都在 ./mdx-out/", style="muted")
-    console.print(Panel(body, border_style=FAINT, padding=(0, 1), box=ROUNDED))
+    console.print(Panel(body, border_style=FAINT, padding=(0, 1), box=ASCII_BOX_RICH))
     return 0
 
 

@@ -235,5 +235,8 @@ def test_welcome_card_and_cat_card_render_at_60_cols(capsys):
     out = capture.get()
     assert out
     for line in out.splitlines():
-        if "─" in line:
-            assert line.count("─") >= 2
+        # ASCII 边框：行首行尾必须配对，不允许内容越过边框
+        if line.startswith("+"):
+            assert line.endswith("+"), repr(line)
+        elif line.startswith("|"):
+            assert line.endswith("|"), repr(line)
