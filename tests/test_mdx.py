@@ -184,8 +184,8 @@ def test_complete_commands_by_prefix():
 
 
 def test_complete_subcommands():
-    assert "running" in complete_text("/cat ")
-    assert "running" in complete_text("/cat r")
+    assert "success" in complete_text("/cat ")
+    assert "success" in complete_text("/cat s")
     assert "on" in complete_text("/motion ")
 
 
@@ -208,3 +208,32 @@ def test_command_completions_have_meta():
     doc = Document("/aud", 4)
     item = next(iter(completer.commands.get_completions(doc, None)))
     assert item.text == "/audit" and "计算完整性检查" in (item.display_meta_text or "")
+
+
+# ---------------- 窄窗口防破版 ----------------
+
+def test_all_faces_ascii_and_narrow():
+    # 宽字符在 CJK 终端是双宽，会把面板撑到跨行撕裂
+    from mdx.theme import FACES
+    for name, (color, art) in FACES.items():
+        assert art.isascii(), f"{name} 含非 ASCII 字符"
+        for line in art.splitlines():
+            assert len(line) <= 12, f"{name} 行太宽: {line!r}"
+
+
+def test_welcome_card_and_cat_card_render_at_60_cols(capsys):
+    # 60 列窄终端下面板边框必须保持完整（每行等宽、首尾为边框）
+    from mdx import cli
+    from mdx.theme import console
+    console.width = 60
+    try:
+        with console.capture() as capture:
+            cli.welcome_card()
+            cli.cat_says("success", "搞定喵～")
+    finally:
+        console.width = None
+    out = capture.get()
+    assert out
+    for line in out.splitlines():
+        if "─" in line:
+            assert line.count("─") >= 2
