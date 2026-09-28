@@ -146,10 +146,25 @@ def parse_command(text):
         return {"tool": BY_ID.get(name)}
     if input_ in MENU_CODE:
         return {"tool": BY_ID[MENU_CODE[input_]]}
-    for tool_id, words in KEYWORDS.items():
-        if any(word in input_ for word in words):
-            return {"tool": BY_ID[tool_id], "understood": input_}
-    return {"tool": None, "text": text}
+    # 裸 MDX 命词优先于同名外部程序（如 unix 的 split / convert）
+    first = input_.split()[0]
+    if first in BY_ID:
+        return {"tool": BY_ID[first]}
+    if first in {"tools", "工具"}:
+        return {"list": True}
+    if first in {"h", "help", "帮助"}:
+        return {"help": True}
+    if first == "env":
+        return {"env": True}
+    if first in {"q", "quit", "exit", "退出", "bye"}:
+        return {"quit": True}
+    # 自然语言只对中文输入生效——英文行不会被静默吃进 MDX 意图, 落到 shell 直通
+    if is_cjk(input_):
+        for tool_id, words in KEYWORDS.items():
+            if any(word in input_ for word in words):
+                return {"tool": BY_ID[tool_id], "understood": text}
+        return {"tool": None, "text": text}
+    return {"shell": text}
 
 
 def prompt_parameters(ui, tool, overrides=None):
@@ -187,6 +202,59 @@ def plain_log(tool, message):
         level = "WARN"
     stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"{stamp} {level:<5} {tool} {message}")
+
+
+# ---------------------------------------------------------------- shell 直通
+
+def is_cjk(text):
+    return any("\u4e00" <= ch <= "\u9fff" for ch in text)
+
+
+def shell_rewrite(line):
+    """跨平台小别名：ll 在 PowerShell / 非交互 bash 里都不存在。"""
+    parts = line.split()
+    if parts and parts[0] == "ll":
+        rest = line.split(None, 1)[1] if len(parts) > 1 else ""
+        base = "Get-ChildItem -Force" if os.name == "nt" else "ls -alF"
+        return f"{base} {rest}".strip()
+    return line
+
+
+def run_shell(line):
+    """非 MDX 输入直接当 shell 命令执行：输出直通、非零退出码显式提示，绝不静默。"""
+    line = shell_rewrite(line.strip())
+    tokens = line.split()
+    if not tokens:
+        return
+    if tokens[0] == "cd":
+        target = tokens[1].strip("\"'") if len(tokens) > 1 else str(Path.home())
+        try:
+            os.chdir(Path(target).expanduser().resolve())
+            console.print(f"[dim]{Path.cwd()}[/]")
+        except OSError as exc:
+            note(f"cd 失败: {exc}", state="error")
+        return
+    if os.name == "nt":
+        argv = ["powershell", "-NoProfile", "-Command", line]
+    else:
+        argv = [os.environ.get("SHELL") or "/bin/bash", "-c", line]
+    try:
+        proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, encoding="utf-8", errors="replace")
+    except OSError as exc:
+        note(f"命令起不来: {exc}", state="error")
+        return
+    try:
+        for chunk in proc.stdout:
+            sys.stdout.write(chunk)
+        sys.stdout.flush()
+        proc.wait()
+    except KeyboardInterrupt:
+        proc.terminate()
+        note("已中断 shell 命令", state="warning")
+        return
+    if proc.returncode:
+        note(f"退出码 {proc.returncode}", state="warning")
 
 
 # ---------------------------------------------------------------- 执行
@@ -698,7 +766,7 @@ def interactive(ui, *, debug=False):
         note("交互模式需要终端（TTY）。无交互请用：mdx run <工具> --project <目录>", state="warning")
         return 2
     from prompt_toolkit import PromptSession
-    from prompt_toolkit.history import InMemoryHistory
+    from prompt_toolkit.history import FileHistory
     from prompt_toolkit.styles import Style
 
     no_color = "NO_COLOR" in os.environ or ui.console.no_color or ui.options.plain
@@ -708,7 +776,10 @@ def interactive(ui, *, debug=False):
         "brand": "" if no_color else "#5ff5ff",
         "dim": "" if no_color else "#8a8a99",
     })
-    session = PromptSession(history=InMemoryHistory(), completer=MDXCompleter(),
+    # 历史持久化：跨会话 ↑ 可回溯（Linux / Windows 同一份 ~/.mdx/history）
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    session = PromptSession(history=FileHistory(str(CONFIG_DIR / "history")),
+                            completer=MDXCompleter(),
                             complete_while_typing=True, reserve_space_for_menu=4,
                             style=style, erase_when_done=True, mouse_support=False)
     opts = {"animate": True, "cat": True}
@@ -716,6 +787,7 @@ def interactive(ui, *, debug=False):
     welcome_card()
     console.print("  ", f"[{YELLOW}]喵～[/]", badge(" /tools ", CYAN), "[dim]工具[/]",
                   badge(" /help ", CYAN), "[dim]帮助[/]", badge(" Ctrl-D ", CYAN), "[dim]退出[/]")
+    console.print(f"  [dim]shell 直通:[/] ls · ll · grep ... 直接执行, MDX 命令优先; ↑ 翻历史")
     console.print()
     session_flags = {"no_ask": False}
     stats = {"ok": 0, "fail": 0}
@@ -772,6 +844,20 @@ def interactive(ui, *, debug=False):
 
         parsed = parse_command(line)
         if parsed is None:
+            continue
+        if parsed.get("shell"):
+            try:
+                run_shell(parsed["shell"])
+            except Exception as exc:
+                note(f"shell 执行出错: {type(exc).__name__}: {exc}", state="error")
+            continue
+        if parsed.get("quit"):
+            break
+        if parsed.get("list") or parsed.get("help"):
+            print_tools(ui)
+            continue
+        if parsed.get("env"):
+            show_env(ui)
             continue
         if parsed.get("tool") is None:
             note("喵？这个我还不会", state="idle")

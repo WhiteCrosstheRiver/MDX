@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -240,3 +241,53 @@ def test_welcome_card_and_cat_card_render_at_60_cols(capsys):
             assert line.endswith("|"), repr(line)
         elif line.startswith(("+", "|")):
             assert False, repr(line)
+
+
+# ---------------- shell 直通与优先级 ----------------
+
+def test_parse_priority_mdx_over_shell():
+    # 裸工具名：MDX 优先（unix 也有 split/convert，但 MDX 赢）
+    assert cli.parse_command("split")["tool"]["id"] == "split"
+    assert cli.parse_command("audit")["tool"]["id"] == "audit"
+    # 编号与斜杠照旧
+    assert cli.parse_command("11")["tool"]["id"] == "audit"
+    assert cli.parse_command("/audit")["tool"]["id"] == "audit"
+
+
+def test_parse_english_falls_to_shell():
+    assert cli.parse_command("ls -la") == {"shell": "ls -la"}
+    assert cli.parse_command("grep train OUTCAR").get("shell")
+    assert cli.parse_command("ll") == {"shell": "ll"}  # ll 落 shell, 由 run_shell 改写
+    assert cli.parse_command("train data").get("shell")  # 英文行不被关键词劫持
+
+
+def test_parse_chinese_stays_mdx():
+    assert cli.parse_command("帮我抽帧")["tool"]["id"] == "extract"
+    # 中文没听懂仍是 MDX 未知，不会丢给 shell
+    assert cli.parse_command("随便说点啥")["tool"] is None
+
+
+def test_shell_rewrite_ll():
+    rewritten = cli.shell_rewrite("ll /tmp")
+    if os.name == "nt":
+        assert rewritten.startswith("Get-ChildItem -Force")
+    else:
+        assert rewritten.startswith("ls -alF")
+    assert cli.shell_rewrite("ls -la") == "ls -la"
+
+
+def test_run_shell_echo_and_exit_code(capsys):
+    cli.run_shell("echo mdx-shell-ok")
+    assert "mdx-shell-ok" in capsys.readouterr().out
+    cli.run_shell("exit 3" if os.name != "nt" else "exit 3")
+    out = capsys.readouterr().out
+    assert "退出码" in out  # 非零退出码必须显式提示, 不静默
+
+
+def test_run_shell_cd_builtin(tmp_path, capsys):
+    cwd = os.getcwd()
+    try:
+        cli.run_shell(f'cd "{tmp_path}"')
+        assert Path.cwd() == tmp_path.resolve()
+    finally:
+        os.chdir(cwd)
