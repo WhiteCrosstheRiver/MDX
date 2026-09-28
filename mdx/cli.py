@@ -337,47 +337,56 @@ def execute(ui, tool_id, params, project=None, output=None, ask=None, session_fl
             state["progress"] = (int(match[1]), int(match[2]))
         state["cur"] = message
 
-    try:
-        if interactive:
+    live = None
+    if interactive:
+        def card():
+            secs = time.monotonic() - started
+            tick = int(secs * 4)
+            head = Text()
+            head.append(SPIN[tick % len(SPIN)], style=CYAN)
+            head.append(" ")
+            head.append(badge_text, style=f"black on {badge_style}")
+            head.append(f" {verb}" + "." * (tick % 4), style=YELLOW)
+            bar_line = Text()
+            prog = state["progress"]
+            if prog:
+                done, total = prog
+                pct = min(100, done * 100 // max(total, 1))
+                n = round(36 * pct / 100)
+                bar_line.append("█" * n, style=GREEN)
+                bar_line.append("█" * (36 - n), style="grey23")
+                bar_line.append(f"  {done}/{total}", style="bold white")
+                bar_line.append(f"  {pct}%", style=CYAN)
+            cur = Text(f"{secs:.1f}s - {state['cur']}", style=DIM)
+            g = Table.grid(padding=(0, 2))
+            g.add_column(vertical="bottom")
+            g.add_column()
+            cat_style, cat_art = face("working")
+            g.add_row(Text(cat_art, style=cat_style), Group(head, bar_line, cur))
+            return g
+
+        try:
             from rich.live import Live
+            live = Live(card(), console=console, refresh_per_second=8,
+                        transient=True, vertical_overflow="ellipsis")
+            live.start(refresh=True)
+        except Exception:
+            live = None  # Live 起不来就普通执行, 绝不让它挡住任务
 
-            def card():
-                secs = time.monotonic() - started
-                tick = int(secs * 4)
-                head = Text()
-                head.append(SPIN[tick % len(SPIN)], style=CYAN)
-                head.append(" ")
-                head.append(badge_text, style=f"black on {badge_style}")
-                head.append(f" {verb}" + "." * (tick % 4), style=YELLOW)
-                bar_line = Text()
-                prog = state["progress"]
-                if prog:
-                    done, total = prog
-                    pct = min(100, done * 100 // max(total, 1))
-                    n = round(36 * pct / 100)
-                    bar_line.append("█" * n, style=GREEN)
-                    bar_line.append("█" * (36 - n), style="grey23")
-                    bar_line.append(f"  {done}/{total}", style="bold white")
-                    bar_line.append(f"  {pct}%", style=CYAN)
-                cur = Text(f"{secs:.1f}s - {state['cur']}", style=DIM)
-                g = Table.grid(padding=(0, 2))
-                g.add_column(vertical="bottom")
-                g.add_column()
-                cat_style, cat_art = face("working")
-                g.add_row(Text(cat_art, style=cat_style), Group(head, bar_line, cur))
-                return g
-
-            with Live(card(), console=console, refresh_per_second=8,
-                      transient=True, vertical_overflow="ellipsis"):
-                result = run_tool(tool_id, project, output, params, log, lambda: False)
-        else:
-            result = run_tool(tool_id, project, output, params, log, lambda: False)
+    try:
+        result = run_tool(tool_id, project, output, params, log, lambda: False)
     except KeyboardInterrupt:
         interrupted = True
     except (ValueError, InterruptedError) as exc:
         error = str(exc)
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
+    finally:
+        if live:
+            try:
+                live.stop()
+            except Exception:
+                pass
 
     elapsed = time.monotonic() - started
     session_flags["last_fail"] = bool(error)
@@ -693,10 +702,11 @@ def interactive(ui, *, debug=False):
     from prompt_toolkit.styles import Style
 
     no_color = "NO_COLOR" in os.environ or ui.console.no_color or ui.options.plain
+    # prompt_toolkit 只认十六进制/ansi 色值, 不认 rich 的颜色名
     style = Style.from_dict({
-        "cat": "" if no_color else YELLOW,
-        "brand": "" if no_color else CYAN,
-        "dim": "" if no_color else DIM,
+        "cat": "" if no_color else "#ffe55f",
+        "brand": "" if no_color else "#5ff5ff",
+        "dim": "" if no_color else "#8a8a99",
     })
     session = PromptSession(history=InMemoryHistory(), completer=MDXCompleter(),
                             complete_while_typing=True, reserve_space_for_menu=4,
@@ -773,8 +783,18 @@ def interactive(ui, *, debug=False):
         tokens = line.split()
         inline_project = tokens[1] if len(tokens) > 1 and not tokens[1].startswith("-") else None
         ask = make_path_prompt(session) if inline_project is None else None
-        params = prompt_parameters(ui, tool)
-        execute(ui, tool["id"], params, project=inline_project, ask=ask, session_flags=session_flags)
+        try:
+            params = prompt_parameters(ui, tool)
+            execute(ui, tool["id"], params, project=inline_project, ask=ask,
+                    session_flags=session_flags)
+        except KeyboardInterrupt:
+            note("已中断, 回到待命。", state="warning")
+            continue
+        except Exception:
+            import traceback
+            note("出 bug 了, 但窗口还活着 - 以下信息能帮着修：", state="error")
+            console.print(f"[dim]{traceback.format_exc()[-600:]}[/]")
+            session_flags["last_fail"] = True
         stats["fail" if session_flags.get("last_fail") else "ok"] += 1
 
     sstyle, art = face("sleep")
