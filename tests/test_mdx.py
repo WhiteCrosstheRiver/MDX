@@ -233,7 +233,7 @@ def test_welcome_card_and_cat_card_render_at_60_cols(capsys):
     finally:
         console.width = None
     out = capture.get()
-    assert "Molecular-Simulation Assistant" in out and "搞定喵" in out and "0)" in out
+    assert "Molecular Simulation Assistant" in out and "搞定喵" in out and "0)" in out
     # 信息框允许 "|" 边框，但必须左右配对；其余行不得以边框字符开头
     for line in out.splitlines():
         if line.startswith("|"):

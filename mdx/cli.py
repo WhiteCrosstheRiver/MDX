@@ -1,7 +1,7 @@
-"""喵喵分子助手 · 命令行界面（完全照搬 MDX Terminal UI 设计稿）。
+"""MDX 命令行界面 · 设计稿 3a（高对比猫猫面板 + 2a 进度条 + 作者信息）。
 
-对话式 agent CLI 的节奏：欢迎卡片 → 输入框 → 带小动词的思考动画 → 树状结果。
-猫猫表情跟着状态变，出错也不凶。无 TTY 自动收起猫猫和颜色：一行一事件带时间戳。
+防破版铁律：参与对齐的字符只用 ASCII；CJK 可任意；Ambiguous 字符（✦ ❯ ● ･ 等）
+只出现在行尾或无边框行。无 TTY 时自动纯文本：一行一事件带时间戳。
 """
 import argparse
 import datetime
@@ -14,16 +14,16 @@ import sys
 import time
 from pathlib import Path
 
-from rich.box import ASCII as ASCII_BOX_RICH
-from rich.panel import Panel
+from rich.console import Group
+from rich.table import Table
 from rich.text import Text
 
 from . import __version__
 from .catalog import BY_ID, TOOLS, validate
 from .operations import discover, run as run_tool
-from .theme import (BAD, BRAND, FACES, FAINT, MUTED, NEXT_HINT, OK, PATH, SPIN,
-                    card_bottom, card_top,
-                    VERBS, console, dot, face)
+from .theme import (AFFILIATION, AUTHOR, CYAN, DIM, FACES, GREEN, MAGENTA,
+                    NEXT_HINT, REPO, RED, SPIN, VERBS, YELLOW, console, face,
+                    mood)
 
 try:
     from prompt_toolkit.completion import Completion, Completer, PathCompleter
@@ -33,7 +33,6 @@ except ImportError:  # 允许在未装 prompt_toolkit 时使用非交互命令
 CONFIG_DIR = Path.home() / ".mdx"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 
-# 自然语言关键词 → 工具（按优先级，命中第一个即停）
 KEYWORDS = {
     "audit": ["完整性", "检查", "收敛", "nelm"],
     "convert": ["转换", "extxyz", "数据集", "转xyz", "转 xyz"],
@@ -47,8 +46,83 @@ KEYWORDS = {
 
 PROGRESS_RE = re.compile(r"处理 (\d+)/(\d+)")
 
+# 编号菜单（设计稿 2a 编号 + 2b 面板）
+SECTIONS = [
+    ("结构准备 Structure", CYAN, [("01", "perturb"), ("02", "vacancy"),
+                                   ("03", "extract"), ("04", "sample")]),
+    ("计算检查 Check", GREEN, [("11", "audit"), ("12", "collect")]),
+    ("数据集 Dataset", MAGENTA, [("21", "convert"), ("22", "split")]),
+]
+MENU_CODE = {code: tid for _, _, items in SECTIONS for code, tid in items}
+MENU_CODE.update({str(i + 1): tid for i, tid in enumerate(
+    [t for _, _, items in SECTIONS for _, t in items][:4])})  # 1-4 简写
 
-# ---------------------------------------------------------------- 助手解析
+
+# ---------------------------------------------------------------- 小工具
+
+def badge(label, style):
+    """彩底徽章。label 内避免 Ambiguous 字符参与对齐的场景由调用方保证。"""
+    return f"[black on {style}]{label}[/]"
+
+
+def _dw(text):
+    """显示宽度：CJK 算 2 列（与终端渲染一致）。"""
+    return sum(2 if ord(ch) > 0x2E7F else 1 for ch in text)
+
+
+def _pad(text, width):
+    return text + " " * max(0, width - _dw(text))
+
+
+def _pad_stripped(cell, width):
+    """给带 rich 标记的单元做显示宽度填充（剥离标记后计算）。"""
+    plain = re.sub(r"\[/?[^\]]*\]", "", cell)
+    return cell + " " * max(0, width - _dw(plain))
+
+
+def note(message, state="idle", mark=None):
+    """一行事件：状态点 + 人话。"""
+    style = {"success": "ok", "warning": "warn", "error": "err"}.get(state, "brand")
+    mark = mark or "*"
+    console.print(f"[{style}]{mark}[/] {message}")
+
+
+def cat_says(state, message, sub=None):
+    """猫猫 + 一句话（无边框, 任何宽度安全）。"""
+    style, art = face(state)
+    console.print(f"[{style}]{art}[/]")
+    console.print(message)
+    if sub:
+        console.print(f"[dim]{sub}[/]")
+    console.print()
+
+
+def humanize_error(exc):
+    """错误 → (一句人话, 可复制的修复命令, 备注)。"""
+    text = str(exc)
+    lowered = text.lower()
+    if "no module named" in lowered:
+        mod = lowered.split("no module named")[-1].strip(" '\"。 ")
+        if mod in {"ase", "numpy"}:
+            return f"缺少依赖 {mod}", "python -m pip install --user ase numpy", "11 完整性检查不需要它"
+        return f"缺少依赖 {mod}", f"python -m pip install --user {mod}", None
+    if "没有该工具支持的输入文件" in text:
+        return "这个目录里没找到需要的输入文件", "/tools 看每个工具要什么 - cd 到计算目录再试", None
+    if "不存在" in text or "no such" in lowered:
+        return text, "检查一下路径, 输入时可以按 Tab 补全", None
+    if "nelm" in lowered or "收敛" in text or "CONTCAR" in text:
+        return text, "如果计算确实没跑完, 等它结束或调大 NELM 再 21 转换", None
+    return text, None
+
+
+def count_inputs(project):
+    counts = {}
+    for _, kind in discover(Path(project)):
+        counts[kind] = counts.get(kind, 0) + 1
+    return counts
+
+
+# ---------------------------------------------------------------- 解析
 
 def parse_command(text):
     """把一行输入解析为动作；无法识别时 tool 为 None。"""
@@ -69,45 +143,13 @@ def parse_command(text):
             return {"clear": True}
         if name in FACES:
             return {"cat": name}
-        if name.isdigit():
-            order = sorted(BY_ID)
-            idx = int(name) - 1
-            if 0 <= idx < len(order):
-                return {"tool": BY_ID[order[idx]]}
         return {"tool": BY_ID.get(name)}
-    if input_.isdigit():
-        order = sorted(BY_ID)
-        idx = int(input_) - 1
-        if 0 <= idx < len(order):
-            return {"tool": BY_ID[order[idx]]}
+    if input_ in MENU_CODE:
+        return {"tool": BY_ID[MENU_CODE[input_]]}
     for tool_id, words in KEYWORDS.items():
         if any(word in input_ for word in words):
             return {"tool": BY_ID[tool_id], "understood": input_}
     return {"tool": None, "text": text}
-
-
-# ---------------------------------------------------------------- 显示小件
-
-def note(message, state="idle", mark=None):
-    """一行事件：圆点 + 人话。"""
-    console.print(f"{dot(state, mark)} {message}")
-
-
-def tree_line(text, depth=1):
-    console.print(f"{'   ' * depth}[muted]`-[/] {text}")
-
-
-def cat_says(state, message, sub=None):
-    """猫猫 + 一句话（完成 / 出错 / 中断时出现，说完就收）。"""
-    color, art = face(state)
-    body = Text()
-    body.append(art + "\n", style=color)
-    body.append(message, style="text")
-    if sub:
-        body.append("\n" + sub, style="muted")
-    card_top(color)
-    console.print(body)
-    card_bottom(color)
 
 
 def prompt_parameters(ui, tool, overrides=None):
@@ -119,7 +161,7 @@ def prompt_parameters(ui, tool, overrides=None):
     note(f"「{tool['name']}」参数（直接回车使用默认值）")
     for spec in tool["fields"]:
         default = overrides.get(spec["key"], spec["default"])
-        suffix = f"{spec['min']}–{spec['max']}" if spec["key"] != "seed" else "0–2147483647"
+        suffix = f"{spec['min']}-{spec['max']}" if spec["key"] != "seed" else "0-2147483647"
         raw = input(f"    {spec['label']} [{default}] ({suffix}): ").strip()
         if not raw:
             params[spec["key"]] = default
@@ -129,56 +171,43 @@ def prompt_parameters(ui, tool, overrides=None):
             assert spec["min"] <= value <= spec["max"]
             params[spec["key"]] = int(value) if spec["step"] == 1 else value
         except (ValueError, AssertionError):
-            note(f"{spec['label']} 应该是数字（{spec['min']}–{spec['max']}），先用默认值 {spec['default']} 啦",
+            note(f"{spec['label']} 应该是数字（{spec['min']}-{spec['max']}）, 先用默认值 {spec['default']} 啦",
                  state="warning")
             params[spec["key"]] = spec["default"]
     return params
 
 
-def humanize_error(exc):
-    """设计稿 07：错误 → (一句人话, 可直接复制的修复命令, 备注)。"""
-    text = str(exc)
-    lowered = text.lower()
-    if "no module named" in lowered:
-        mod = lowered.split("no module named")[-1].strip(" '\"。 ")
-        if mod in {"ase", "numpy"}:
-            return f"缺少依赖 {mod}", "python -m pip install --user ase numpy", "/audit 这类检查工具不需要它"
-        return f"缺少依赖 {mod}", f"python -m pip install --user {mod}", None
-    if "没有该工具支持的输入文件" in text:
-        return "这个目录里没找到需要的输入文件", "/tools 看每个工具要什么 · cd 到计算目录再试", None
-    if "不存在" in text or "no such" in lowered:
-        return text, "检查一下路径，输入时可以按 Tab 补全", None
-    if "nelm" in lowered or "收敛" in text or "CONTCAR" in text:
-        return text, "如果计算确实没跑完，等它结束或调大 NELM 再 /convert", None
-    return text, None
+# ---------------------------------------------------------------- 无 TTY 日志
+
+def plain_log(tool, message):
+    level = "INFO"
+    if any(k in message for k in ("失败", "✗", "错误")):
+        level = "ERROR"
+    elif any(k in message for k in ("跳过", "未", "提示", "!", "WARN")):
+        level = "WARN"
+    stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"{stamp} {level:<5} {tool} {message}")
 
 
-# ---------------------------------------------------------------- 工具执行
-
-def count_inputs(project):
-    counts = {}
-    for _, kind in discover(Path(project)):
-        counts[kind] = counts.get(kind, 0) + 1
-    return counts
-
+# ---------------------------------------------------------------- 执行
 
 def confirm_card(tool, params, output, n_inputs, session_flags):
-    """设计稿 03：执行前确认。返回 True / False / "edit"。"""
+    """执行前确认。返回 True / False / "edit"。"""
     if session_flags.get("no_ask") or not sys.stdin.isatty():
         return True
-    body = Text()
-    body.append(f"{tool['name']} ", style="bold")
-    body.append(f"· {n_inputs} 个输入文件\n", style="muted")
+    console.print(f"[dim]{'=' * 56}[/]")
+    head = Text()
+    head.append(f"{tool['name']} ", style="bold white")
+    head.append(f"- {n_inputs} 个输入文件\n", style=DIM)
     for f in tool["fields"]:
-        body.append(f"{f['key']:<14}", style="muted")
-        body.append(f"{params.get(f['key'], f['default'])}\n")
-    body.append(f"{'输出':<14}", style="muted")
-    body.append(f"{output}\n", style="path")
-    body.append("\n要开始吗？", style="text")
-    card_top(FAINT)
-    console.print(body)
-    card_bottom(FAINT)
-    console.print(f"[{BRAND}]❯ 1. 开始[/]\n  2. 开始，本次会话别再问\n  3. 改一下参数 [faint](e)[/]")
+        head.append(_pad(f"{f['key']:<12}", 14), style=DIM)
+        head.append(f"{params.get(f['key'], f['default'])}\n", style="white")
+    head.append(_pad("输出", 14), style=DIM)
+    head.append(f"{output}\n\n", style=CYAN)
+    head.append("要开始吗?", style="white")
+    console.print(head)
+    console.print(f"[{MAGENTA}]> 1. 开始[/]   2. 开始, 本次会话别再问   3. 改一下参数 [dim](e)[/]")
+    console.print(f"[dim]{'=' * 56}[/]")
     choice = input("").strip().lower()
     if choice == "2":
         session_flags["no_ask"] = True
@@ -188,15 +217,75 @@ def confirm_card(tool, params, output, n_inputs, session_flags):
     return choice in {"", "1", "y"}
 
 
-def plain_log(tool, message):
-    """设计稿 10：无 TTY 一行一事件，带时间戳和等级，方便 grep。"""
-    level = "INFO"
-    if any(k in message for k in ("失败", "✗", "错误")):
-        level = "ERROR"
-    elif any(k in message for k in ("跳过", "未", "提示", "!", "WARN")):
-        level = "WARN"
-    stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"{stamp} {level:<5} {tool} {message}")
+def seg_bar(ok, warn, err, total, width=36):
+    """2a 分段进度条：绿/黄/红（无边框行, 块字符安全）。"""
+    bar = Text()
+    used = 0
+    for n, style in ((ok, GREEN), (warn, YELLOW), (err, RED)):
+        k = round(width * n / max(total, 1))
+        used += k
+        bar.append("█" * k, style=style)
+    bar.append("█" * max(width - used, 0), style="grey23")
+    return bar
+
+
+def audit_stats(output):
+    """从 audit.json 归纳 正常/未收敛/缺失 三类。"""
+    try:
+        records = json.loads((Path(output) / "audit.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    ok, nelm, missing = [], [], []
+    for record in records:
+        issues = record.get("issues") or []
+        rel = str(record.get("file", ""))
+        if any("CONTCAR" in i for i in issues):
+            missing.append(rel)
+        elif issues:
+            nelm.append(rel)
+        else:
+            ok.append(rel)
+    return ok, nelm, missing
+
+
+def render_result(tool_id, result, output, elapsed, project):
+    tool = BY_ID[tool_id]
+    if tool_id == "audit":
+        stats = audit_stats(output)
+        if stats:
+            ok, nelm, missing = stats
+            total = len(ok) + len(nelm) + len(missing)
+            bad = len(nelm) + len(missing)
+            console.print(badge(f" audit - {total} OUTCAR - {elapsed:.1f}s ", YELLOW))
+            console.print(seg_bar(len(ok), len(nelm), len(missing), total),
+                          Text(f"  {total}/{total}", style="bold white"), Text(" 100%", style=GREEN))
+            console.print()
+            console.print(badge(f" {len(ok)} ", GREEN), " 正常 ok      ",
+                          badge(f" {len(nelm)} ", YELLOW), " 未收敛 NELM  ",
+                          badge(f" {len(missing)} ", RED), " 缺 CONTCAR")
+            for p in nelm:
+                console.print(badge(" WARN ", YELLOW), f"[dim]{p}[/]", f"[{YELLOW}]NELM 达上限[/]")
+            for p in missing:
+                console.print(badge(" FAIL ", RED), f"[dim]{p}[/]", f"[{RED}]no CONTCAR[/]")
+            tail = f"{mood('ok')} 全部通过!" if not bad else f"{mood('warn')} {bad} 个要看看"
+            tail_style = "ok" if not bad else "warn"
+            console.print(f"[{CYAN}]-> {output}[/]  [{tail_style}]{tail}[/]")
+            console.print()
+            if bad:
+                cat_says("warning", f"有 {bad} 条提示, 多半是没跑完的计算",
+                         f"之后 21 转换会自动跳过 - {NEXT_HINT['audit']}")
+            else:
+                cat_says("success", f"搞定喵～ {NEXT_HINT['audit']}")
+            return
+    issues = result.get("issues", 0)
+    console.print(badge(f" {tool['name']} - {result['records']} 条记录 - {elapsed:.0f}s ",
+                        YELLOW if issues else GREEN))
+    console.print(f"[{CYAN}]-> {output}[/]  [dim]manifest.json 参数/来源/可复现[/]")
+    if issues:
+        console.print(f"[{YELLOW}]{mood('warn')} {issues} 条完整性提示, 先看一眼再用于训练[/]")
+    console.print()
+    cat_says("success" if not issues else "warning",
+             f"搞定喵～ {NEXT_HINT.get(tool_id, '')}")
 
 
 def execute(ui, tool_id, params, project=None, output=None, ask=None, session_flags=None):
@@ -211,7 +300,7 @@ def execute(ui, tool_id, params, project=None, output=None, ask=None, session_fl
         message, fix, _ = humanize_error(f"目录不存在：{project}")
         note(message, state="error")
         if fix:
-            tree_line(fix)
+            console.print(f"[dim]`-[/] {fix}")
         return
     n_inputs = sum(count_inputs(project).values())
     stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -221,12 +310,14 @@ def execute(ui, tool_id, params, project=None, output=None, ask=None, session_fl
     if answer == "edit":
         params = prompt_parameters(ui, tool, params)
     elif not answer:
-        note("那先不跑，需要的时候再叫我～")
+        note("那先不跑, 需要的时候再叫我～")
         return
 
     output.mkdir(parents=True, exist_ok=True)
     rng = random.Random(stamp)
     verb = rng.choice(VERBS)
+    badge_text = f" {tool_id.upper()} "
+    badge_style = GREEN if tool_id == "audit" else CYAN
     started = time.monotonic()
     result = None
     error = None
@@ -235,7 +326,7 @@ def execute(ui, tool_id, params, project=None, output=None, ask=None, session_fl
     if not interactive:
         plain_log(tool_id, f"start project={project} params={params}")
 
-    state = {"lines": [], "progress": None}
+    state = {"cur": "", "progress": None}
 
     def log(message):
         if not interactive:
@@ -244,7 +335,7 @@ def execute(ui, tool_id, params, project=None, output=None, ask=None, session_fl
         match = PROGRESS_RE.search(message)
         if match:
             state["progress"] = (int(match[1]), int(match[2]))
-        state["lines"].append(message)
+        state["cur"] = message
 
     try:
         if interactive:
@@ -252,24 +343,31 @@ def execute(ui, tool_id, params, project=None, output=None, ask=None, session_fl
 
             def card():
                 secs = time.monotonic() - started
-                frame = SPIN[int(secs * 6) % len(SPIN)]
-                box = Text()
-                box.append(f"{frame} {verb}… ", style=BRAND)
-                box.append(f"({secs:.0f}s · Ctrl-C 中断)", style="muted")
+                tick = int(secs * 4)
+                head = Text()
+                head.append(SPIN[tick % len(SPIN)], style=CYAN)
+                head.append(" ")
+                head.append(badge_text, style=f"black on {badge_style}")
+                head.append(f" {verb}" + "." * (tick % 4), style=YELLOW)
+                bar_line = Text()
                 prog = state["progress"]
                 if prog:
                     done, total = prog
-                    pct = min(100, int(done * 100 / max(total, 1)))
-                    n = round(pct / 4)
-                    box.append(f"\n[{'#' * n}{'-' * (25 - n)}] {pct}%  {done}/{total}", style=BRAND)
-                for line in state["lines"][-5:]:
-                    box.append(f"\n[muted]`-[/] {line}")
-                card_top(FAINT)
-                box.append("\n")
-                card_bottom(FAINT)
-                return box
+                    pct = min(100, done * 100 // max(total, 1))
+                    n = round(36 * pct / 100)
+                    bar_line.append("█" * n, style=GREEN)
+                    bar_line.append("█" * (36 - n), style="grey23")
+                    bar_line.append(f"  {done}/{total}", style="bold white")
+                    bar_line.append(f"  {pct}%", style=CYAN)
+                cur = Text(f"{secs:.1f}s - {state['cur']}", style=DIM)
+                g = Table.grid(padding=(0, 2))
+                g.add_column(vertical="bottom")
+                g.add_column()
+                cat_style, cat_art = face("working")
+                g.add_row(Text(cat_art, style=cat_style), Group(head, bar_line, cur))
+                return g
 
-            with Live(card(), console=console, refresh_per_second=6,
+            with Live(card(), console=console, refresh_per_second=8,
                       transient=True, vertical_overflow="ellipsis"):
                 result = run_tool(tool_id, project, output, params, log, lambda: False)
         else:
@@ -282,6 +380,8 @@ def execute(ui, tool_id, params, project=None, output=None, ask=None, session_fl
         error = f"{type(exc).__name__}: {exc}"
 
     elapsed = time.monotonic() - started
+    session_flags["last_fail"] = bool(error)
+    session_flags["interrupted"] = interrupted
     if not interactive:
         if interrupted:
             plain_log(tool_id, "interrupted")
@@ -291,53 +391,40 @@ def execute(ui, tool_id, params, project=None, output=None, ask=None, session_fl
             plain_log(tool_id, f"done records={result['records']} output={output}")
         return
 
-    # 收尾：树状结果（设计稿 04/05/06/09）
     console.print()
     if interrupted:
-        note(f"已中断 · 用时 {elapsed:.0f}s", state="warning")
-        tree_line(f"已生成的留在 [path]{output}[/]")
-        cat_says("interrupt", "好的停下了！部分结果已经保留", "manifest: status = interrupted")
+        note(f"已中断 - 用时 {elapsed:.0f}s", state="warning")
+        console.print(f"[dim]`-[/] 已生成的留在 [{CYAN}]{output}[/]")
+        cat_says("interrupt", "好的停下了! 部分结果已经保留", "manifest: status = interrupted")
     elif error:
         message, fix, extra = humanize_error(error)
-        note(message, state="error")
+        console.print(badge(" ERROR ", RED), f"[{RED}]{message}[/]")
         if fix:
-            tree_line(fix)
+            console.print(f"[dim]`-[/] {fix}")
         if extra:
-            console.print(f"      [faint]{extra}[/]")
-        cat_says("error", "没关系，改好了再叫我～")
+            console.print(f"[dim]      {extra}[/]")
+        cat_says("error", "没关系, 改好了再叫我～")
     else:
-        issues = result.get("issues", 0)
-        note(f"{tool['name']} 完成 · {result['records']} 条记录 · {elapsed:.0f}s",
-             state="success", mark="✓")
-        tree_line(f"[path]{output}[/]")
-        console.print("    [muted]|[/] manifest.json [muted]参数 · 来源 · 可复现[/]")
-        if issues:
-            console.print(f"    [muted]`-[/] {issues} 条完整性提示 [warn]先看一眼再用于训练[/]")
-            cat_says("warning", f"有 {issues} 条提示，多半是没跑完的计算",
-                     f"之后 /convert 会自动跳过 ✗ 项 · {NEXT_HINT.get(tool_id, '')}")
-        else:
-            cat_says("success", f"搞定喵～ {NEXT_HINT.get(tool_id, '')}")
+        render_result(tool_id, result, output, elapsed, project)
 
 
-# ---------------------------------------------------------------- 清单与环境
+# ---------------------------------------------------------------- 清单 / 环境
 
 def print_tools(ui, short=False):
     cwd_counts = count_inputs(Path.cwd())
-    for group in ["计算检查", "结构准备", "数据处理"]:
-        tools = [t for t in TOOLS if t["group"] == group]
-        if not tools:
-            continue
-        note(group)
-        for tool in tools:
+    for title, color, items in SECTIONS:
+        console.print(f"[{color}]{'=' * 7}[/]", badge(f" {title} ", color), f"[{color}]{'=' * 30}[/]")
+        for code, tid in items:
+            tool = BY_ID[tid]
             need = next(iter(re.findall(r"[A-Za-z]+", tool["files"])), "")
             have = need.lower() in cwd_counts or need in cwd_counts
-            flag = "" if have else f"  [faint]缺 {need}[/]"
+            flag = "" if have else f"  [dim]缺 {need}[/]"
             if short:
-                console.print(f"    [brand]/{tool['id']}[/]  {tool['name']}{flag}")
+                console.print(f"  [{YELLOW}]{code})[/] [{color}]/{tid}[/]{flag}")
             else:
-                console.print(f"    [brand]/{tool['id']}[/]  {tool['name']}  [muted][{tool['files']}]{flag}[/]")
-                console.print(f"      [muted]{tool['description']}[/]")
-    console.print()
+                console.print(f"  [{YELLOW}]{code})[/] [{color}]/{tid:<10}[/] {tool['name']}{flag}")
+                console.print(f"      [dim]{tool['description']}[/]")
+        console.print()
 
 
 def show_env(ui):
@@ -347,19 +434,18 @@ def show_env(ui):
     rows = [
         ("Python", platform.python_version()),
         ("平台", platform.platform()),
-        ("ASE", "[ok]已安装[/]" if importlib.util.find_spec("ase") else "[bad]未安装[/]（结构类工具不可用）"),
-        ("NumPy", "[ok]已安装[/]" if importlib.util.find_spec("numpy") else "[bad]未安装[/]"),
+        ("ASE", "[ok]已安装[/]" if importlib.util.find_spec("ase") else "[err]未安装[/]（结构类工具不可用）"),
+        ("NumPy", "[ok]已安装[/]" if importlib.util.find_spec("numpy") else "[err]未安装[/]"),
         ("程序目录", str(project_root())),
     ]
     for key, value in rows:
-        console.print(f"  [muted]{key:<10}[/]{value}")
+        console.print(f"  [dim]{_pad(key, 10)}[/]{value}")
     console.print()
 
 
-# ---------------------------------------------------------------- 安装
+# ---------------------------------------------------------------- 安装 / 更新
 
 def bin_candidates():
-    """按优先级返回候选 bin 目录（用户级优先，不碰系统目录）。"""
     home = Path.home()
     if os.name == "nt":
         local = Path(os.environ.get("LOCALAPPDATA", home / "AppData" / "Local"))
@@ -373,19 +459,16 @@ def choose_bin(ui, explicit=None):
         target = Path(explicit).expanduser().resolve()
         target.mkdir(parents=True, exist_ok=True)
         return target, "指定目录"
-    # 设计稿 11：扫描出的 bin 位置做成选项，标注是否在 PATH
     candidates = bin_candidates()
     path_set = {Path(p) for p in os.environ.get("PATH", "").split(os.pathsep)}
-    card_top(FAINT)
-    console.print("[bold]装到哪里？[/]")
-    console.print("[muted]只写入一个启动脚本 | 不建虚拟环境 | 不装包 | 不碰系统目录[/]")
+    console.print(badge(" 装到哪里? ", MAGENTA),
+                  "[dim]只写一个启动脚本 | 不建虚拟环境 | 不装包 | 不碰系统目录[/]")
     shown = candidates[:2]
     for i, c in enumerate(shown, 1):
-        mark = "[ok]在 PATH 里 · 推荐[/]" if c in path_set else "[warn]不在 PATH，需要手动加[/]"
-        prefix = f"[{BRAND}]❯ {i}. {c}[/]" if i == 1 else f"{i}. {c}"
+        mark = f"[{GREEN}]在 PATH 里 - 推荐[/]" if c in path_set else f"[{YELLOW}]不在 PATH, 需要手动加[/]"
+        prefix = f"[{MAGENTA}]> {i}. {c}[/]" if i == 1 else f"  {i}. {c}"
         console.print(f"{prefix}  {mark}")
-    console.print(f"  3. 自己指定… [faint](--dir)[/]")
-    card_bottom(FAINT)
+    console.print(f"  3. 自己指定... [dim](--dir)[/]")
     choice = input("").strip()
     if choice == "2" and len(candidates) > 1:
         target = candidates[1]
@@ -394,7 +477,7 @@ def choose_bin(ui, explicit=None):
     else:
         target = candidates[0]
     target.mkdir(parents=True, exist_ok=True)
-    return target, ("在 PATH 里" if target in path_set else "不在 PATH，需要手动加")
+    return target, ("在 PATH 里" if target in path_set else "不在 PATH, 需要手动加")
 
 
 def launcher_body(bin_dir, python, root):
@@ -402,7 +485,7 @@ def launcher_body(bin_dir, python, root):
         return (f'@echo off\r\nset "PYTHONPATH={root}"\r\n'
                 f'@"{python}" -m mdx %*\r\n')
     return (f"#!/usr/bin/env bash\n"
-            f"# MDX launcher — generated by `mdx install`, safe to delete\n"
+            f"# MDX launcher - generated by `mdx install`, safe to delete\n"
             f'export PYTHONPATH="{root}"\n'
             f'exec "{python}" -m mdx "$@"\n')
 
@@ -413,26 +496,26 @@ def install(explicit_dir=None, dry_run=False, ui=None):
     if explicit_dir or not sys.stdin.isatty():
         if explicit_dir:
             bin_dir = Path(explicit_dir).expanduser().resolve()
-            bin_dir.mkdir(parents=True, exist_ok=True)
             reason = "指定目录"
         else:
             bin_dir = bin_candidates()[0]
-            bin_dir.mkdir(parents=True, exist_ok=True)
             reason = "推荐位置"
+        bin_dir.mkdir(parents=True, exist_ok=True)
     else:
         bin_dir, reason = choose_bin(ui)
     name = "mdx.bat" if os.name == "nt" else "mdx"
     target = bin_dir / name
     in_path = any(p == bin_dir for p in (Path(p) for p in os.environ.get("PATH", "").split(os.pathsep)))
 
-    console.print(f"\n  [muted]安装位置[/]  [path]{target}[/] [muted]（{reason}）[/]")
-    console.print(f"  [muted]解释器[/]    {python}")
-    console.print(f"  [muted]程序目录[/]  {root} [muted]（启动器只指向这里，不复制、不安装包）[/]")
+    console.print(f"\n  [dim]安装位置[/]  [{CYAN}]{target}[/] [dim]（{reason}）[/]")
+    console.print(f"  [dim]解释器[/]    {python}")
+    console.print(f"  [dim]程序目录[/]  {root} [dim]（启动器只指向这里, 不复制、不安装包）[/]")
     if dry_run:
-        console.print("\n  [warn]◆ dry-run[/] 未写入任何文件。")
+        console.print(f"\n  [{YELLOW}]dry-run[/] 未写入任何文件。")
         return
 
-    target.write_text(launcher_body(bin_dir, python, root), encoding="utf-8", newline="\n" if os.name != "nt" else None)
+    target.write_text(launcher_body(bin_dir, python, root), encoding="utf-8",
+                      newline="\n" if os.name != "nt" else None)
     if os.name != "nt":
         target.chmod(0o755)
 
@@ -442,13 +525,13 @@ def install(explicit_dir=None, dry_run=False, ui=None):
         installed=datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")),
         ensure_ascii=False, indent=2), encoding="utf-8")
 
-    note(f"装好了 [path]{target}[/]", state="success", mark="✓")
+    note(f"装好了 [{CYAN}]{target}[/]", state="success")
     if in_path:
-        tree_line("现在任何目录都能直接敲 [brand]mdx[/] 或卸载 [brand]mdx uninstall[/]")
+        console.print("[dim]`-[/] 现在任何目录都能直接敲 [brand]mdx[/] - 卸载 [brand]mdx uninstall[/]")
     else:
-        tree_line(f"[warn]{bin_dir} 不在 PATH 中[/]，加入 PATH：")
+        console.print(f"[dim]`-[/] [{YELLOW}]{bin_dir} 不在 PATH 中[/], 加入 PATH：")
         if os.name == "nt":
-            console.print(f'      setx PATH "%PATH%;{bin_dir}"   [faint]然后重开终端[/]')
+            console.print(f'      setx PATH "%PATH%;{bin_dir}"   [dim]然后重开终端[/]')
         else:
             console.print(f'      echo \'export PATH="$PATH:{bin_dir}"\' >> ~/.bashrc && source ~/.bashrc')
     console.print()
@@ -462,10 +545,8 @@ def uninstall(ui=None):
     launcher = Path(config["bin"])
     launcher.unlink(missing_ok=True)
     CONFIG_PATH.unlink()
-    note(f"已删除 {launcher} 与安装记录；程序目录 {config['root']} 未动。", state="success", mark="✓")
+    note(f"已删除 {launcher} 与安装记录; 程序目录 {config['root']} 未动。", state="success")
 
-
-# ---------------------------------------------------------------- 更新
 
 def project_root():
     return Path(__file__).resolve().parent.parent
@@ -474,29 +555,28 @@ def project_root():
 def update(ui=None, reinstall=False):
     root = project_root()
     if not (root / ".git").exists():
-        note(f"{root} 不是 git 仓库，没法自动更新；先手动同步代码吧", state="error")
+        note(f"{root} 不是 git 仓库, 没法自动更新; 先手动同步代码吧", state="error")
         raise SystemExit(1)
     result = subprocess.run(["git", "pull", "--ff-only"], cwd=root, capture_output=True, text=True)
     if result.returncode != 0:
-        # 设计稿 12：没法安全快进
-        note("本地有改动，没法安全快进", state="error")
-        tree_line("先 [path]git stash[/] 或提交，再试一次")
+        note("本地有改动, 没法安全快进", state="error")
+        console.print("[dim]`-[/] 先 [brand]git stash[/] 或提交, 再试一次")
         raise SystemExit(1)
     if "Already up to date" in result.stdout or "已经是最新的" in result.stdout:
-        note("已经是最新版本", state="success", mark="✓")
+        note("已经是最新版本", state="success")
         return
     console.print(result.stdout.strip())
     if reinstall:
         subprocess.run([sys.executable, "-m", "pip", "install", "-e", str(root), "--quiet"], check=False)
-        note("依赖有变化，已重新注册")
+        note("依赖有变化, 已重新注册")
     if CONFIG_PATH.exists():
         config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
         if Path(config["root"]) != root or Path(config["python"]) != Path(sys.executable):
             install()
-    note("更新完成", state="success", mark="✓")
+    note("更新完成", state="success")
 
 
-# ---------------------------------------------------------------- 交互 REPL
+# ---------------------------------------------------------------- 补全
 
 COMPLETION_META = {f"/{t['id']}": f"{t['name']}（{t['files']}）" for t in TOOLS}
 COMPLETION_META.update({"/cat": "看猫猫", "/tools": "工具清单", "/env": "运行环境", "/help": "帮助",
@@ -537,7 +617,7 @@ if Completer is not None:  # prompt_toolkit 可用时才定义交互补全器
             self.paths = PathCompleter(expanduser=True)
 
         def path_completions(self, word):
-            # PathCompleter 把整段文本当路径，因此只喂最后一个词
+            # PathCompleter 把整段文本当路径, 因此只喂最后一个词
             from prompt_toolkit.document import Document
             sub = Document(word, len(word))
             yield from self.paths.get_completions(sub, None)
@@ -566,71 +646,42 @@ def make_path_prompt(session):
     return ask
 
 
-LOGO = """\n
-            /\\_/\\
-           ( o.o )        Meow! You must know what you are doing.
-            > ^ <         Otherwise you might get wrong results.
-"""
-
-INFO_BOX = [
-    "MDX  Molecular-Simulation Assistant  {ver}",
-    "Lead Developer: Zemeng FENG",
-    "Main Contributor: Kui XU",
-    "Nanjing Tech University, Institute of Advanced Materials",
-    "Pure local | No network | Every task writes manifest",
-]
-
-SECTIONS = [
-    ("Computational Checks", ["audit", "convert"]),
-    ("Structure Preparation", ["extract", "perturb", "vacancy"]),
-    ("Data Processing", ["split", "sample", "collect"]),
-]
-
-PROMPT_NUM = {}
-_n = 1
-for _title, _ids in SECTIONS:
-    for _tid in _ids:
-        PROMPT_NUM[_tid] = f"{_n:02d}"
-        _n += 1
-
-
-def _dw(text):
-    """显示宽度：CJK 算 2 列，用于编号菜单的手工对齐。"""
-    import unicodedata
-    return sum(2 if unicodedata.east_asian_width(ch) in "FW" else 1 for ch in text)
-
-
-def _pad(text, width):
-    return text + " " * max(0, width - _dw(text))
-
+# ---------------------------------------------------------------- 首屏与 REPL
 
 def welcome_card():
-    """VASPKIT 式首屏：大猫 Logo + 信息框 + 分组编号工具菜单。"""
-    console.print(f"[{BRAND}]{LOGO}[/]")
-    width = min(62, max(console.width - 2, 40))
-    console.print(f"[{FAINT}]o{'-' * (width - 2)}o[/]")
-    for line in INFO_BOX:
-        line = line.format(ver=__version__)
-        console.print(f"[{FAINT}]|[/] {_pad(line, width - 4)} [{FAINT}]|[/]")
-    console.print(f"[{FAINT}]o{'-' * (width - 2)}o[/]")
+    """3a：原版小猫 + 作者信息卡（ASCII 信息框）+ 编号工具菜单。"""
+    width = min(62, max(console.width - 2, 44))
+    info_style, art = face("idle")
     console.print()
-
-    order = sorted(BY_ID)
-    for title, ids in SECTIONS:
-        bar = f"{'=' * 8} {title} {'=' * 8}"
-        console.print(f"[{BRAND}]{bar}[/]")
-        cells = [(PROMPT_NUM[t], BY_ID[t]) for t in ids]
-        two_cols = console.width >= 74
-        step = 2 if two_cols else 1
-        for i in range(0, len(cells), step):
-            left = f"{cells[i][0]}) {cells[i][1]['name']}"
-            line = _pad(left, 34) if two_cols else left
-            if two_cols and i + 1 < len(cells):
-                line += f"{cells[i + 1][0]}) {cells[i + 1][1]['name']}"
-            console.print(line)
+    head = Text()
+    head.append(f"[black on {MAGENTA}] ✦ MDX v{__version__} ✦ [/]", style="")
+    head.append(" - 分子模拟命令行助手 ", style="white")
+    head.append("Molecular Simulation Assistant", style=DIM)
+    console.print(head)
+    console.print(f"[{info_style}]{art}[/]")
+    console.print()
+    console.print(f"[{DIM}]o{'-' * (width - 2)}o[/]")
+    rows = [("Author", AUTHOR, CYAN, "bold white"),
+            ("Affiliation", AFFILIATION, GREEN, "white"),
+            ("Repo", REPO, YELLOW, CYAN),
+            ("Build", "MIT - Python 3.11 - offline & reproducible", MAGENTA, "white")]
+    avail = width - 19  # |(1)+空格(1)+标签区(15)+内容(1)+空格(1)+|(1) 之外给值
+    for tag, value, tag_style, value_style in rows:
+        chunks = [value[i:i + avail].rstrip() for i in range(0, len(value), avail)] or [""]
+        for j, chunk in enumerate(chunks):
+            lead = f"[black on {tag_style}] {_pad(tag, 12)} [/] " if j == 0 else " " * 15
+            console.print(f"[{DIM}]|[/] {lead}[{value_style}]{_pad(chunk, avail)}[/] [{DIM}]|[/]")
+    console.print(f"[{DIM}]o{'-' * (width - 2)}o[/]")
+    console.print()
+    for title, color, items in SECTIONS:
+        console.print(f"[{color}]{'=' * 7}[/]", badge(f" {title} ", color), f"[{color}]{'=' * 26}[/]")
+        cells = [f"[{YELLOW}]{code})[/] [{color}]{tid:<9}[/] [dim]{BY_ID[tid]['name']}[/]"
+                 for code, tid in items]
+        for i in range(0, len(cells), 2):
+            console.print("  " + _pad_stripped(cells[i], 32) + (cells[i + 1] if i + 1 < len(cells) else ""))
         console.print()
-    console.print("[brand] 0)[/] Quit   [muted]/tools 详情 · /cat 猫猫 · /help 帮助[/]")
-    console.print(f"[muted]{'-' * 12}>>[/]")
+    console.print(f"  [{YELLOW}]0)[/] 退出 Quit   [dim]- 也可 /audit 或 \"帮我抽帧\"[/]")
+    console.print()
 
 
 def interactive(ui, *, debug=False):
@@ -643,49 +694,43 @@ def interactive(ui, *, debug=False):
 
     no_color = "NO_COLOR" in os.environ or ui.console.no_color or ui.options.plain
     style = Style.from_dict({
-        "brand": "bold" if no_color else BRAND,
-        "muted": "" if no_color else MUTED,
-        "inputmark": "bold" if no_color else f"bold {BRAND}",
+        "cat": "" if no_color else YELLOW,
+        "brand": "" if no_color else CYAN,
+        "dim": "" if no_color else DIM,
     })
     session = PromptSession(history=InMemoryHistory(), completer=MDXCompleter(),
                             complete_while_typing=True, reserve_space_for_menu=4,
-                            style=style, erase_when_done=True, mouse_support=False,
-                            refresh_interval=.25 if ui.motion else 0)
+                            style=style, erase_when_done=True, mouse_support=False)
+    opts = {"animate": True, "cat": True}
 
     welcome_card()
+    console.print("  ", f"[{YELLOW}]喵～[/]", badge(" /tools ", CYAN), "[dim]工具[/]",
+                  badge(" /help ", CYAN), "[dim]帮助[/]", badge(" Ctrl-D ", CYAN), "[dim]退出[/]")
+    console.print()
     session_flags = {"no_ask": False}
     stats = {"ok": 0, "fail": 0}
     ctrl_c = 0
+    t0 = time.monotonic()
 
     while True:
-        start = time.monotonic()
-
-        def message():
-            elapsed = time.monotonic() - start
-            state = "sleep" if elapsed > 45 else "idle"
-            if ui.motion and ui.reaction is not None:
-                previous, since = ui.reaction
-                if time.monotonic() - since < 1.2:
-                    state = previous
-            color, art = face(state)
-            pieces = [("class:brand", row + "\n") for row in art.splitlines()]
-            pieces.append(("class:inputmark", "› "))
-            return pieces
-
         try:
-            line = session.prompt(message).strip()
+            line = session.prompt([
+                ("class:cat", mood("sleep" if time.monotonic() - t0 > 45 else "idle") + " "),
+                ("class:brand", "> "),
+            ]).strip()
             ctrl_c = 0
         except KeyboardInterrupt:
             ctrl_c += 1
             if ctrl_c >= 2:
                 break
-            console.print("[warn]再按一次 Ctrl-C 退出[/]")
+            console.print("[dim]再按一次 Ctrl-C 退出[/]")
             continue
         except EOFError:
             break
+        t0 = time.monotonic()
         if not line:
             continue
-        console.print(f"[muted]›[/] {line}")
+        console.print(f"[dim]>[/] {line}")
         if line.strip() in {"0", "00"}:
             break
 
@@ -694,7 +739,7 @@ def interactive(ui, *, debug=False):
             if cmd in {"exit", "quit", "q", "退出"}:
                 break
             if cmd == "clear":
-                ui.console.clear()
+                console.clear()
                 continue
             if cmd in {"help", "tools"}:
                 print_tools(ui)
@@ -703,18 +748,15 @@ def interactive(ui, *, debug=False):
                 show_env(ui)
                 continue
             if cmd in FACES:
-                color, art = face(cmd)
-                console.print(art, style=color)
-                console.print()
+                fstyle, art = face(cmd)
+                console.print(f"[{fstyle}]{art}[/]\n")
                 continue
             if cmd in {"motion", "mascot"}:
                 tokens = line.split()
                 if len(tokens) != 2 or tokens[1] not in {"on", "off"}:
                     note(f"用法：/{cmd} on|off", state="warning")
                 else:
-                    from dataclasses import replace
-                    key = "animate" if cmd == "motion" else "cat"
-                    ui.options = replace(ui.options, **{key: tokens[1] == "on"})
+                    opts["animate" if cmd == "motion" else "cat"] = tokens[1] == "on"
                     note(f"{cmd}: {tokens[1]}")
                 continue
 
@@ -722,31 +764,24 @@ def interactive(ui, *, debug=False):
         if parsed is None:
             continue
         if parsed.get("tool") is None:
-            # 设计稿 08：听不懂就坦白
             note("喵？这个我还不会", state="idle")
-            tree_line("只认本地关键词，不联网 · [brand]/tools[/] 看我会的 8 件事")
+            console.print("[dim]`-[/] 只认本地关键词, 不联网 - [brand]/tools[/] 看我会的 8 件事")
             continue
         tool = parsed["tool"]
         if parsed.get("understood"):
-            # 设计稿 08：先复述理解
-            note(f"我理解成 [brand]/{tool['id']}[/] [muted]（本地关键词规则）[/]")
+            note(f"我理解成 [brand]/{tool['id']}[/] [dim]（本地关键词规则）[/]")
         tokens = line.split()
         inline_project = tokens[1] if len(tokens) > 1 and not tokens[1].startswith("-") else None
         ask = make_path_prompt(session) if inline_project is None else None
         params = prompt_parameters(ui, tool)
-        before = (stats["ok"], stats["fail"])
         execute(ui, tool["id"], params, project=inline_project, ask=ask, session_flags=session_flags)
         stats["fail" if session_flags.get("last_fail") else "ok"] += 1
 
-    # 设计稿 12：退出 · 猫猫睡觉 + 会话小结
-    color, art = face("sleep")
-    body = Text()
-    body.append(art + "\n", style=color)
-    body.append(f"拜拜～ 本次跑了 {stats['ok'] + stats['fail']} 个任务\n", style="text")
-    body.append(f"✓ {stats['ok']} · ✗ {stats['fail']} · 输出都在 ./mdx-out/", style="muted")
-    card_top(FAINT)
-    console.print(body)
-    card_bottom(FAINT)
+    sstyle, art = face("sleep")
+    console.print(f"\n[{sstyle}]{art}[/]")
+    console.print(f"拜拜～ 本次跑了 {stats['ok'] + stats['fail']} 个任务")
+    console.print(f"[dim]{mood('ok')} {stats['ok']} 成功 - x {stats['fail']} 失败 - 输出都在 mdx-out/[/]")
+    console.print()
     return 0
 
 
@@ -754,19 +789,19 @@ def interactive(ui, *, debug=False):
 
 def parser():
     p = argparse.ArgumentParser(
-        prog="mdx", description=f"喵喵分子助手 v{__version__}（MDX · 终端 UI）")
+        prog="mdx", description=f"MDX 分子模拟命令行助手 v{__version__}")
     p.add_argument("--version", action="version", version=f"mdx {__version__}")
     p.add_argument("--no-animation", "--no-motion", action="store_true", help="动画保持静态")
     p.add_argument("--no-cat", action="store_true", help="隐藏猫猫")
     p.add_argument("--plain", action="store_true", help="无颜色、无猫猫、无动画")
-    p.add_argument("--fps", type=float, default=6, help="任务刷新率 1–12（默认 6）")
+    p.add_argument("--fps", type=float, default=8, help="任务刷新率 1-12（默认 8）")
     sub = p.add_subparsers(dest="command")
 
-    run_p = sub.add_parser("run", help="直接执行一个工具（无交互，适合作业脚本）")
+    run_p = sub.add_parser("run", help="直接执行一个工具（无交互, 适合作业脚本）")
     run_p.add_argument("tool", choices=sorted(BY_ID))
     run_p.add_argument("--project", required=True, help="数据目录")
-    run_p.add_argument("--params", default="", help='JSON 参数，例如 \'{"count": 3}\'')
-    run_p.add_argument("--output", default="", help="输出目录（默认 <数据目录旁>/mdx-out/<tool>-<时间>）")
+    run_p.add_argument("--params", default="", help='JSON 参数, 例如 \'{"count": 3}\'')
+    run_p.add_argument("--output", default="", help="输出目录（默认 mdx-out/<tool>-<时间>）")
 
     sub.add_parser("tools", help="列出全部工具")
     sub.add_parser("chat", help="进入交互助手（默认）")
@@ -778,7 +813,7 @@ def parser():
 
     inst_p = sub.add_parser("install", help="把 mdx 启动器安装到 bin 目录（自动扫描推荐位置）")
     inst_p.add_argument("--dir", default="", help="手动指定 bin 目录")
-    inst_p.add_argument("--dry-run", action="store_true", help="只显示将安装到哪，不写文件")
+    inst_p.add_argument("--dry-run", action="store_true", help="只显示将安装到哪, 不写文件")
 
     sub.add_parser("uninstall", help="删除 bin 启动器与安装记录")
     up_p = sub.add_parser("update", help="从远端 git 拉取更新")
@@ -788,11 +823,10 @@ def parser():
 
 def main(argv=None):
     args = parser().parse_args(argv)
-    no_motion = args.no_animation or os.environ.get("MDX_NO_ANIMATION") == "1"
-    no_cat = args.no_cat or os.environ.get("MDX_NO_CAT") == "1"
     from .ui import TerminalUI, UIOptions
-    ui = TerminalUI(UIOptions(animate=not no_motion, cat=not no_cat, plain=args.plain,
-                              fps=min(max(args.fps, 1), 12)))
+    ui = TerminalUI(UIOptions(animate=not (args.no_animation or os.environ.get("MDX_NO_ANIMATION") == "1"),
+                              cat=not (args.no_cat or os.environ.get("MDX_NO_CAT") == "1"),
+                              plain=args.plain, fps=min(max(args.fps, 1), 12)))
     try:
         if args.command == "run":
             try:
@@ -801,7 +835,7 @@ def main(argv=None):
             except (ValueError, TypeError) as exc:
                 note(f"参数错误：{exc}", state="error")
                 return 1
-            flags = {"no_ask": True}  # run 是无交互模式，不弹确认
+            flags = {"no_ask": True}  # run 是无交互模式, 不弹确认
             execute(ui, args.tool, params, project=args.project,
                     output=args.output or None, session_flags=flags)
             if flags.get("interrupted"):
@@ -815,22 +849,15 @@ def main(argv=None):
             uninstall(ui)
         elif args.command == "update":
             update(ui, args.reinstall)
-        elif args.command == "cat":
-            if args.state == "all":
-                for name in FACES:
-                    color, art = face(name)
-                    console.print(f"[muted]{name:<10}[/]")
-                    console.print(art, style=color)
-                    console.print()
+        elif args.command in {"cat", "gallery"}:
+            if args.command == "cat" and args.state != "all":
+                fstyle, art = face(args.state)
+                console.print(f"[{fstyle}]{art}[/]\n")
             else:
-                color, art = face(args.state)
-                console.print(art, style=color)
-        elif args.command == "gallery":
-            for name in FACES:
-                color, art = face(name)
-                console.print(f"[muted]{name:<10}[/]")
-                console.print(art, style=color)
-                console.print()
+                for name in FACES:
+                    fstyle, art = face(name)
+                    console.print(f"[dim]{_pad(name, 10)}[/]")
+                    console.print(f"[{fstyle}]{art}[/]\n")
         else:
             return interactive(ui) or 0
         return 0

@@ -1,87 +1,68 @@
-"""喵喵分子助手 · 主题层（照搬 MDX Terminal UI 设计稿）。
+"""MDX 高对比猫猫主题（设计稿 3a：亮 ANSI 16 色 + 原版 ASCII 猫）。
 
-配色、猫猫表情、小动词、树状符号全部来自设计稿：
-- 品牌橙 #e8a27c · 成功绿 #9ccf8a · 提醒黄 #e6c46e · 出错红 #eb7f74 · 路径蓝 #8fb3e0
-- 正文 #e6e1db · 弱化 #8a837c · 更弱 #6f6861
-- 猫猫表情 = 状态；出错也不凶。
+颜色规范（设计稿）：青=命令/提示符/标题 · 绿=成功 · 黄=警告/猫 · 红=错误 · 品红=品牌 · 灰=标签。
+防破版规范：凡参与对齐的字符只用 ASCII（o - | + . = >）；
+CJK 本身两格等宽可安全出现在任意行；✦ ❯ ● ･ ω 等 Ambiguous 字符只允许
+出现在行尾或无边框行（后面没有需要对齐的东西）。
 """
 from rich.console import Console
 from rich.theme import Theme
 
-BRAND = "#e8a27c"
-OK = "#9ccf8a"
-WARN = "#e6c46e"
-BAD = "#eb7f74"
-PATH = "#8fb3e0"
-TEXT = "#e6e1db"
-MUTED = "#8a837c"
-FAINT = "#6f6861"
+CYAN = "bright_cyan"      # #5ff5ff 命令、提示符、标题
+GREEN = "bright_green"    # #5fff87 成功
+YELLOW = "bright_yellow"  # #ffe55f 警告、猫
+RED = "bright_red"        # #ff5f5f 错误
+MAGENTA = "bright_magenta"  # #ff5fd2 品牌
+DIM = "grey62"            # 标签、路径、提示
 
 THEME = Theme({
-    "brand": BRAND, "ok": OK, "warn": WARN, "bad": BAD, "path": PATH,
-    "text": TEXT, "muted": MUTED, "faint": FAINT,
+    "brand": CYAN, "cat": YELLOW, "accent": MAGENTA,
+    "ok": GREEN, "warn": YELLOW, "err": RED,
+    "dim": DIM, "text": "white",
 })
-
-# 中日韩终端会把 ─ │ ● · █ 等 Ambiguous 字符渲染成双宽，导致面板边框错位撕裂。
-# 因此面板边框、圆点、进度条、spinner 一律用 ASCII；宽字符只允许出现在
-# 普通文本行中间（不参与对齐）。
-from rich import box as _box
-ASCII_BOX = _box.ASCII
 
 console = Console(theme=THEME, highlight=False)
 
-# 猫猫表情 = 状态。全部 ASCII：设计稿里的宽字符（⌨ ♡ ⊙ つ ω）在 CJK 终端
-# 是双宽，窄窗口下会把面板撑到跨行撕裂，所以表情保持纯 ASCII 不破版。
+# 原版 ASCII 猫（表情 = 状态）
 FACES = {
-    "idle":      (BRAND, " /\\_/\\\n( o.o )\n > ^ < "),
-    "working":   (BRAND, " /\\_/\\\n( o.o )/\n > ^ <  "),
-    "success":   (OK,    " /\\_/\\\n( ^.^ )\n > v < "),
-    "warning":   (WARN,  " /\\_/\\\n( o_o )\n > ^ < "),
-    "error":     (BAD,   " /\\_/\\\n( ;.; )\n > ^ < "),
-    "interrupt": (WARN,  " /\\_/\\\n( O.O )\n > ! < "),
-    "sleep":     (MUTED, " /\\_/\\  z\n( -.- ) z\n > ^ < "),
+    "idle":      (YELLOW, " /\\_/\\\n( o.o )\n > ^ < "),
+    "working":   (YELLOW, " /\\_/\\\n( o.o )/\n > ^ <  "),
+    "success":   (GREEN,  " /\\_/\\\n( ^.^ )\n > v < "),
+    "warning":   (YELLOW, " /\\_/\\\n( o_o )\n > ^ < "),
+    "error":     (RED,    " /\\_/\\\n( ;.; )\n > ^ < "),
+    "interrupt": (YELLOW, " /\\_/\\\n( O.O )\n > ! < "),
+    "sleep":     (DIM,    " /\\_/\\  z\n( -.- ) z\n > ^ < "),
 }
-STATE_COLOR = {"success": OK, "warning": WARN, "error": BAD, "cancelled": WARN,
-               "interrupted": WARN, "running": BRAND, "idle": BRAND}
-MARK_COLOR = {"+": OK, "!": WARN, "x": BAD, "v": OK}
+STATE_COLOR = {"success": GREEN, "warning": YELLOW, "error": RED, "cancelled": YELLOW,
+               "interrupted": YELLOW, "running": CYAN, "idle": YELLOW}
 
-# 小动词 + 闪烁符号（运行中随机出现；符号本身不进猫猫画布，不会破版）
-SPIN = ["-", "\\", "|", "/"]
-VERBS = ["踩奶中", "舔毛中", "追尾巴中", "翻 OUTCAR 中", "打呼噜中", "数原子中", "伸懒腰中"]
+# 行内心情猫（ASCII kaomoji，可安全出现在任何行）
+MOODS = {"ok": "(=^.^=)", "warn": "(=o.o=)", "err": "(=;.;=)", "sleep": "(=-.-=)z",
+         "idle": "(=o.o=)", "work": "(=^.^=)"}
 
-# 工具完成后的一步建议
+SPIN = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"  # 仅用于无边框行
+VERBS = ["喵～ 检查中 checking", "喵～ 翻文件中 scanning", "喵～ 数原子中 counting", "喵～ 踩奶中 kneading"]
+
 NEXT_HINT = {
-    "audit": "没问题的文件可以直接 /convert 转数据集",
-    "convert": "下一步可以 /split 划分训练 / 测试集",
-    "extract": "抽好的 POSCAR 可以 /perturb 做微扰",
-    "perturb": "微扰结构可以拿去提交计算，或 /vacancy 造空位",
-    "vacancy": "空位结构可以 /sample 再随机采样一批",
+    "audit": "没问题的文件可以 21 转数据集",
+    "convert": "下一步可以 22 划分训练/测试集",
+    "extract": "抽好的 POSCAR 可以 01 做微扰",
+    "perturb": "微扰结构可以提交计算, 或 02 造空位",
+    "vacancy": "空位结构可以 04 再采样一批",
     "split": "划分结果记得核对 manifest 后再训练",
-    "sample": "采出来的结构可以 /collect 归档",
-    "collect": "收集完可以 /extract 抽帧",
+    "sample": "采出来的结构可以 12 收集归档",
+    "collect": "收集完可以 03 抽帧",
 }
 
-
-RULE = "─" * 56
-
-
-def card_top(color):
-    console.print(f"[{color}]{RULE}[/]")
-
-
-def card_bottom(color):
-    console.print(f"[{color}]{RULE}[/]\n")
+AUTHOR = "Zemeng FENG, Kui XU"
+AFFILIATION = "Institute of Advanced Materials, Nanjing Tech University"
+REPO = "github.com/WhiteCrosstheRiver/MDX"
 
 
 def face(state):
-    """返回 (color, 多行猫猫字符串)。"""
+    """返回 (rich样式名, 多行猫猫字符串)。"""
     return FACES.get(state, FACES["idle"])
 
 
-def dot(state="running", mark=None):
-    """树状事件圆点 / 标记。"""
-    if mark:
-        mark = {"✓": "+", "✗": "x"}.get(mark, mark)
-        return f"[{MARK_COLOR.get(mark, BRAND)}]{mark}[/]"
-    char = {"success": "+", "warning": "!", "error": "x"}.get(state, "*")
-    return f"[{STATE_COLOR.get(state, BRAND)}]{char}[/]"
+def mood(kind):
+    return MOODS.get(kind, MOODS["idle"])
