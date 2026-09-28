@@ -22,6 +22,7 @@ from . import __version__
 from .catalog import BY_ID, TOOLS, validate
 from .operations import discover, run as run_tool
 from .theme import (BAD, BRAND, FACES, FAINT, MUTED, NEXT_HINT, OK, PATH, SPIN,
+                    card_bottom, card_top,
                     VERBS, console, dot, face)
 
 try:
@@ -94,7 +95,9 @@ def cat_says(state, message, sub=None):
     body.append(message, style="text")
     if sub:
         body.append("\n" + sub, style="muted")
-    console.print(Panel(body, border_style=color, padding=(0, 1), box=ASCII_BOX_RICH))
+    card_top(color)
+    console.print(body)
+    card_bottom(color)
 
 
 def prompt_parameters(ui, tool, overrides=None):
@@ -162,7 +165,9 @@ def confirm_card(tool, params, output, n_inputs, session_flags):
     body.append(f"{'输出':<14}", style="muted")
     body.append(f"{output}\n", style="path")
     body.append("\n要开始吗？", style="text")
-    console.print(Panel(body, border_style=FAINT, padding=(0, 1), box=ASCII_BOX_RICH))
+    card_top(FAINT)
+    console.print(body)
+    card_bottom(FAINT)
     console.print(f"[{BRAND}]❯ 1. 开始[/]\n  2. 开始，本次会话别再问\n  3. 改一下参数 [faint](e)[/]")
     choice = input("").strip().lower()
     if choice == "2":
@@ -249,10 +254,13 @@ def execute(ui, tool_id, params, project=None, output=None, ask=None, session_fl
                     box.append(f"\n[{'#' * n}{'-' * (25 - n)}] {pct}%  {done}/{total}", style=BRAND)
                 for line in state["lines"][-5:]:
                     box.append(f"\n[muted]`-[/] {line}")
-                return Panel(box, border_style=FAINT, padding=(0, 1), box=ASCII_BOX_RICH)
+                card_top(FAINT)
+                box.append("\n")
+                card_bottom(FAINT)
+                return box
 
             with Live(card(), console=console, refresh_per_second=6,
-                      transient=True, vertical_overflow="crop"):
+                      transient=True, vertical_overflow="ellipsis"):
                 result = run_tool(tool_id, project, output, params, log, lambda: False)
         else:
             result = run_tool(tool_id, project, output, params, log, lambda: False)
@@ -358,14 +366,16 @@ def choose_bin(ui, explicit=None):
     # 设计稿 11：扫描出的 bin 位置做成选项，标注是否在 PATH
     candidates = bin_candidates()
     path_set = {Path(p) for p in os.environ.get("PATH", "").split(os.pathsep)}
-    console.print(Panel("[bold]装到哪里？[/]\n[muted]只写入一个启动脚本 · 不建虚拟环境 · 不装包 · 不碰系统目录[/]",
-                        border_style=FAINT, padding=(0, 1), box=ASCII_BOX_RICH))
+    card_top(FAINT)
+    console.print("[bold]装到哪里？[/]")
+    console.print("[muted]只写入一个启动脚本 | 不建虚拟环境 | 不装包 | 不碰系统目录[/]")
     shown = candidates[:2]
     for i, c in enumerate(shown, 1):
         mark = "[ok]在 PATH 里 · 推荐[/]" if c in path_set else "[warn]不在 PATH，需要手动加[/]"
         prefix = f"[{BRAND}]❯ {i}. {c}[/]" if i == 1 else f"{i}. {c}"
         console.print(f"{prefix}  {mark}")
     console.print(f"  3. 自己指定… [faint](--dir)[/]")
+    card_bottom(FAINT)
     choice = input("").strip()
     if choice == "2" and len(candidates) > 1:
         target = candidates[1]
@@ -572,7 +582,9 @@ def welcome_card():
     body.append(" | ", style="muted")
     body.append("/tools", style="brand")
     body.append(" 看全部", style="muted")
-    console.print(Panel(body, border_style=color, padding=(1, 2), box=ASCII_BOX_RICH))
+    card_top(color)
+    console.print(body)
+    card_bottom(color)
 
 
 def interactive(ui, *, debug=False):
@@ -684,7 +696,9 @@ def interactive(ui, *, debug=False):
     body.append(art + "\n", style=color)
     body.append(f"拜拜～ 本次跑了 {stats['ok'] + stats['fail']} 个任务\n", style="text")
     body.append(f"✓ {stats['ok']} · ✗ {stats['fail']} · 输出都在 ./mdx-out/", style="muted")
-    console.print(Panel(body, border_style=FAINT, padding=(0, 1), box=ASCII_BOX_RICH))
+    card_top(FAINT)
+    console.print(body)
+    card_bottom(FAINT)
     return 0
 
 

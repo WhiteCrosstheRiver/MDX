@@ -62,6 +62,17 @@ NEXT_HINT = {
 }
 
 
+RULE = "─" * 56
+
+
+def card_top(color):
+    console.print(f"[{color}]{RULE}[/]")
+
+
+def card_bottom(color):
+    console.print(f"[{color}]{RULE}[/]\n")
+
+
 def face(state):
     """返回 (color, 多行猫猫字符串)。"""
     return FACES.get(state, FACES["idle"])
