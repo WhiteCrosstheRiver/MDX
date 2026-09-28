@@ -69,7 +69,17 @@ def parse_command(text):
             return {"clear": True}
         if name in FACES:
             return {"cat": name}
+        if name.isdigit():
+            order = sorted(BY_ID)
+            idx = int(name) - 1
+            if 0 <= idx < len(order):
+                return {"tool": BY_ID[order[idx]]}
         return {"tool": BY_ID.get(name)}
+    if input_.isdigit():
+        order = sorted(BY_ID)
+        idx = int(input_) - 1
+        if 0 <= idx < len(order):
+            return {"tool": BY_ID[order[idx]]}
     for tool_id, words in KEYWORDS.items():
         if any(word in input_ for word in words):
             return {"tool": BY_ID[tool_id], "understood": input_}
@@ -556,36 +566,71 @@ def make_path_prompt(session):
     return ask
 
 
+LOGO = """\n
+            /\\_/\\
+           ( o.o )        Meow! You must know what you are doing.
+            > ^ <         Otherwise you might get wrong results.
+"""
+
+INFO_BOX = [
+    "MDX  Molecular-Simulation Assistant  {ver}",
+    "Lead Developer: Zemeng FENG",
+    "Main Contributor: Kui XU",
+    "Nanjing Tech University, Institute of Advanced Materials",
+    "Pure local | No network | Every task writes manifest",
+]
+
+SECTIONS = [
+    ("Computational Checks", ["audit", "convert"]),
+    ("Structure Preparation", ["extract", "perturb", "vacancy"]),
+    ("Data Processing", ["split", "sample", "collect"]),
+]
+
+PROMPT_NUM = {}
+_n = 1
+for _title, _ids in SECTIONS:
+    for _tid in _ids:
+        PROMPT_NUM[_tid] = f"{_n:02d}"
+        _n += 1
+
+
+def _dw(text):
+    """显示宽度：CJK 算 2 列，用于编号菜单的手工对齐。"""
+    import unicodedata
+    return sum(2 if unicodedata.east_asian_width(ch) in "FW" else 1 for ch in text)
+
+
+def _pad(text, width):
+    return text + " " * max(0, width - _dw(text))
+
+
 def welcome_card():
-    """设计稿 01：启动 · 欢迎卡片。"""
-    cwd = Path.cwd()
-    counts = count_inputs(cwd)
-    detail = " · ".join(f"{v} {k}" for k, v in sorted(counts.items())) or "还没发现输入文件"
-    color, art = face("idle")
-    body = Text()
-    body.append(art + "\n\n", style=color)
-    body.append("* 欢迎回来! MDX 分子模拟助手 ", style=color)
-    body.append(f"v{__version__}\n", style="muted")
-    body.append("纯本地 · 不联网 · 每个任务独立目录 + manifest\n", style="muted")
-    body.append("目录 ", style="muted")
-    body.append(f"{cwd} ", style="path")
-    body.append(f"· {detail}\n", style="muted")
-    body.append("Authors ", style="faint")
-    body.append("Zemeng Feng", style=f"{color} italic")
-    body.append(" · ", style="faint")
-    body.append("Kui Xu", style=f"{color} italic")
-    body.append("\n", style="faint")
-    body.append("Nanjing Tech University, Institute of Advanced Materials\n", style=f"italic {MUTED}")
-    body.append("试试：", style="muted")
-    body.append("/audit", style="brand")
-    body.append(" 检查计算 | ", style="muted")
-    body.append("帮我抽帧", style="text")
-    body.append(" | ", style="muted")
-    body.append("/tools", style="brand")
-    body.append(" 看全部", style="muted")
-    card_top(color)
-    console.print(body)
-    card_bottom(color)
+    """VASPKIT 式首屏：大猫 Logo + 信息框 + 分组编号工具菜单。"""
+    console.print(f"[{BRAND}]{LOGO}[/]")
+    width = min(62, max(console.width - 2, 40))
+    console.print(f"[{FAINT}]o{'-' * (width - 2)}o[/]")
+    for line in INFO_BOX:
+        line = line.format(ver=__version__)
+        console.print(f"[{FAINT}]|[/] {_pad(line, width - 4)} [{FAINT}]|[/]")
+    console.print(f"[{FAINT}]o{'-' * (width - 2)}o[/]")
+    console.print()
+
+    order = sorted(BY_ID)
+    for title, ids in SECTIONS:
+        bar = f"{'=' * 8} {title} {'=' * 8}"
+        console.print(f"[{BRAND}]{bar}[/]")
+        cells = [(PROMPT_NUM[t], BY_ID[t]) for t in ids]
+        two_cols = console.width >= 74
+        step = 2 if two_cols else 1
+        for i in range(0, len(cells), step):
+            left = f"{cells[i][0]}) {cells[i][1]['name']}"
+            line = _pad(left, 34) if two_cols else left
+            if two_cols and i + 1 < len(cells):
+                line += f"{cells[i + 1][0]}) {cells[i + 1][1]['name']}"
+            console.print(line)
+        console.print()
+    console.print("[brand] 0)[/] Quit   [muted]/tools 详情 · /cat 猫猫 · /help 帮助[/]")
+    console.print(f"[muted]{'-' * 12}>>[/]")
 
 
 def interactive(ui, *, debug=False):
@@ -641,6 +686,8 @@ def interactive(ui, *, debug=False):
         if not line:
             continue
         console.print(f"[muted]›[/] {line}")
+        if line.strip() in {"0", "00"}:
+            break
 
         if line.startswith("/"):
             cmd = line.lstrip("/").split()[0]

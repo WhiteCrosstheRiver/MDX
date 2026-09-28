@@ -233,8 +233,10 @@ def test_welcome_card_and_cat_card_render_at_60_cols(capsys):
     finally:
         console.width = None
     out = capture.get()
-    assert "欢迎回来" in out and "搞定喵" in out
-    # 无面板边框后，不允许出现以边框字符开头/结尾的行（即面板残留）
+    assert "Molecular-Simulation Assistant" in out and "搞定喵" in out and "0)" in out
+    # 信息框允许 "|" 边框，但必须左右配对；其余行不得以边框字符开头
     for line in out.splitlines():
-        assert not line.startswith(("+", "|")), repr(line)
-        assert not line.endswith(("+", "|")), repr(line)
+        if line.startswith("|"):
+            assert line.endswith("|"), repr(line)
+        elif line.startswith(("+", "|")):
+            assert False, repr(line)
